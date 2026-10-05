@@ -1,0 +1,42 @@
+# Xcode / XcodeGen
+Velora.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+*.xcuserstate
+*.xcscmblueprint
+
+# Build
+build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+.swiftpm/
+
+# CocoaPods / Carthage (若后续引入)
+Pods/
+Carthage/Build/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# IDE
+.idea/
+*.xccheckout
+
+# Secrets / local
+*.mobileprovision
+*.p12
+.env
+.env.*
+
+# Temp
+tmp/
+*.log
