@@ -17,13 +17,12 @@ struct ProfileView: View {
                     assetsEntry
                     settingsEntry
                 }
-                .padding(.bottom, VSpace.xl)
+                .padding(.bottom, 100)
             }
             .background(Color.vBackground)
             .toolbar(.hidden, for: .navigationBar)
             .refreshable { await refresh() }
             .task { await refresh() }
-            .navigationDestination(for: Lot.self) { LotDetailView(lotId: $0.id, preload: $0) }
         }
         .sheet(isPresented: $showEdit) { EditProfileView() }
         .confirmationDialog("退出登录？", isPresented: $showLogoutConfirm, titleVisibility: .visible) {
@@ -57,7 +56,9 @@ struct ProfileView: View {
                         Spacer()
                     }
                     HStack(spacing: 0) {
-                        stat("\(u.lotCount)", "在拍/已拍"); stat("\(u.wonCount)", "拍到"); stat("\(u.soldCount)", "卖出")
+                        NavigationLink { MyLotsView(kind: .mine) } label: { stat("\(u.lotCount)", "在拍/已拍") }
+                        NavigationLink { OrderListView(role: "buyer") } label: { stat("\(u.wonCount)", "拍到") }
+                        NavigationLink { OrderListView(role: "seller") } label: { stat("\(u.soldCount)", "卖出") }
                         NavigationLink { WalletView() } label: {
                             VStack(spacing: 3) {
                                 Text(wallet?.availableBalance.display ?? "--").font(.vMono(17, weight: .heavy))
@@ -66,6 +67,7 @@ struct ProfileView: View {
                             .foregroundStyle(.white).frame(maxWidth: .infinity)
                         }
                     }
+                    .buttonStyle(.plain)
                     .padding(.vertical, 12)
                     .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: VRadius.l, style: .continuous))
                 } else {
@@ -198,9 +200,12 @@ struct MyLotsView: View {
                     else {
                         LazyVStack(spacing: VSpace.m) {
                             ForEach(items) { lot in
-                                NavigationLink(value: lot) {
+                                NavigationLink {
+                                    LotDetailView(lotId: lot.id, preload: lot)
+                                } label: {
                                     LotRow(lot: lot, trailing: kind == .bids && lot.myBid.hasBid ? "我出 \(lot.myBid.maxAmount.display)" : nil)
-                                }.buttonStyle(.plain)
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                         .padding(VSpace.l)
@@ -212,7 +217,6 @@ struct MyLotsView: View {
         .background(Color.vBackground)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(for: Lot.self) { LotDetailView(lotId: $0.id, preload: $0) }
         .task { await load() }
         .onChange(of: status) { _, _ in Task { await load() } }
     }

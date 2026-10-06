@@ -36,14 +36,15 @@ struct LotDetailView: View {
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .task { await model.load(); model.subscribe() }
-        .onDisappear { model.unsubscribe() }
+        .onAppear { router.hideTabBar = true }
+        .onDisappear { router.hideTabBar = false; model.unsubscribe() }
         .sheet(isPresented: $showBidSheet) {
             if let lot = model.lot { BidSheet(lot: lot, model: model).presentationDetents([.height(420)]).presentationDragIndicator(.visible) }
         }
         .sheet(isPresented: $showAllBids) {
             if let lot = model.lot { BidHistorySheet(lot: lot).presentationDetents([.medium, .large]) }
         }
-        .sheet(item: $chatConv) { conv in NavigationStack { ChatView(conversation: conv) } }
+        .sheet(item: $chatConv) { conv in NavigationStack { ChatView(conversation: conv, presentedAsSheet: true) } }
         .sheet(item: Binding(get: { orderToOpen.map(IDBox.init) }, set: { orderToOpen = $0?.id })) { box in
             NavigationStack { OrderDetailView(orderId: box.id) }
         }
@@ -166,6 +167,21 @@ struct LotDetailView: View {
                     .foregroundStyle(lot.myBid.leading ? Color.vGold : Color.vPrimary)
                     .padding(10)
                     .background((lot.myBid.leading ? Color.vGold : Color.vPrimary).opacity(0.1), in: RoundedRectangle(cornerRadius: VRadius.m, style: .continuous))
+                }
+
+                if lot.isLive, !model.isSeller {
+                    if model.isLeading {
+                        Text("您已是当前最高出价，被超越后可再次出价").font(.vCaption).foregroundStyle(Color.vTextSecondary)
+                    } else {
+                        VPrimaryButton(title: "立即出价 \(lot.minNextBid.display)", icon: "hammer.fill", loading: model.bidding) {
+                            guard requireLogin() else { return }
+                            showBidSheet = true
+                        }
+                    }
+                } else if lot.isUpcoming, !model.isSeller {
+                    Text("预展中 · \(lot.startAt.shortText) 开拍后即可出价，可先点底部「开拍提醒」").font(.vCaption).foregroundStyle(Color.vTextSecondary)
+                } else if model.isSeller, lot.isLive || lot.isUpcoming {
+                    Text("这是你发布的拍品，卖家不能对自己的拍品出价").font(.vCaption).foregroundStyle(Color.vTextSecondary)
                 }
 
                 if model.isWinner, let oid = lot.orderId {
@@ -338,24 +354,25 @@ struct LotDetailView: View {
                             .background(amt == lot.minNextBid ? Color.vPrimarySoft : Color.vCarbon, in: RoundedRectangle(cornerRadius: VRadius.l, style: .continuous))
                         }
                         .disabled(model.bidding || model.isLeading)
-                        .opacity(model.isLeading ? 0.5 : 1)
+                        .opacity(model.isLeading ? 0.45 : 1)
                     }
                     Button {
                         guard requireLogin() else { return }
                         showBidSheet = true
                     } label: {
                         VStack(spacing: 1) {
-                            Text(model.isLeading ? "领先中" : "出价").font(.vMicro).opacity(0.85)
-                            Text(model.isLeading ? "👑" : "自定义").font(.vMono(14, weight: .bold))
+                            Text(model.isLeading ? "领先中" : "自定义").font(.vMicro).opacity(0.85)
+                            Text(model.isLeading ? "已领先" : "出价").font(.vMono(14, weight: .bold))
                         }
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity).frame(height: 48)
                         .background(VGradient.brand, in: RoundedRectangle(cornerRadius: VRadius.l, style: .continuous))
                     }
                     .disabled(model.bidding || model.isLeading)
+                    .opacity(model.isLeading ? 0.45 : 1)
                 }
             } else if lot.isUpcoming {
-                VPrimaryButton(title: "\(lot.startAt.shortText) 开拍", style: .dark, disabled: true) {}
+                VPrimaryButton(title: "开拍后可出价 · \(lot.startAt.shortText)", style: .dark, disabled: true) {}
             } else if model.isWinner, let oid = lot.orderId {
                 VPrimaryButton(title: "我已拍中 · 去付款", icon: "trophy.fill") { orderToOpen = oid }
             } else {

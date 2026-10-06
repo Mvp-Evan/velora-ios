@@ -67,7 +67,7 @@ struct OrderDetailView: View {
             if let o = model.order { ShipSheet(order: o) { Task { await model.load() } }.presentationDetents([.height(360)]) }
         }
         .sheet(item: $result) { r in PaymentResultView(result: r, order: model.order) { result = nil } }
-        .sheet(item: $chatConv) { c in NavigationStack { ChatView(conversation: c) } }
+        .sheet(item: $chatConv) { c in NavigationStack { ChatView(conversation: c, presentedAsSheet: true) } }
     }
 
     // MARK: Sections

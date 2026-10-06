@@ -47,6 +47,8 @@ final class AppRouter: ObservableObject {
     @Published var pendingOrder: Int64?
     @Published var showPublish = false
     @Published var showLogin = false
+    /// 拍卖间等沉浸页隐藏底部 Tab
+    @Published var hideTabBar = false
 
     func open(lot id: Int64) { pendingLot = id }
     func open(order id: Int64) { pendingOrder = id }

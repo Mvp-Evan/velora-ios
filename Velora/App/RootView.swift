@@ -121,9 +121,11 @@ struct MainTabView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .safeAreaPadding(.bottom, 64)
+            .safeAreaPadding(.bottom, router.hideTabBar ? 0 : 84)
 
-            VTabBar()
+            if !router.hideTabBar {
+                VTabBar()
+            }
         }
         .ignoresSafeArea(.keyboard)
         .fullScreenCover(isPresented: $router.showPublish) {
@@ -147,11 +149,11 @@ struct VTabBar: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 0) {
-            tab(.home, "house", "首页")
-            tab(.auctions, "flag.checkered", "拍场")
+            tab(.home, icon: "house", selectedIcon: "house.fill", title: "首页")
+            tab(.auctions, icon: "flag.checkered", selectedIcon: "flag.checkered", title: "拍场")
             publishButton
-            tab(.messages, "bubble.left.and.bubble.right", "消息", badge: session.unread)
-            tab(.me, "person", "我的")
+            tab(.messages, icon: "bubble.left.and.bubble.right", selectedIcon: "bubble.left.and.bubble.right.fill", title: "消息", badge: session.unread)
+            tab(.me, icon: "person", selectedIcon: "person.fill", title: "我的")
         }
         .padding(.top, 8)
         .padding(.bottom, 2)
@@ -164,7 +166,7 @@ struct VTabBar: View {
         )
     }
 
-    private func tab(_ t: AppRouter.Tab, _ icon: String, _ title: String, badge: Int = 0) -> some View {
+    private func tab(_ t: AppRouter.Tab, icon: String, selectedIcon: String, title: String, badge: Int = 0) -> some View {
         let on = router.tab == t
         return Button {
             if t != .home && t != .auctions && !session.isLoggedIn { router.showLogin = true; return }
@@ -173,7 +175,7 @@ struct VTabBar: View {
         } label: {
             VStack(spacing: 3) {
                 ZStack(alignment: .topTrailing) {
-                    Image(systemName: on ? icon + ".fill" : icon)
+                    Image(systemName: on ? selectedIcon : icon)
                         .font(.system(size: 21, weight: on ? .semibold : .regular))
                         .symbolRenderingMode(.hierarchical)
                         .frame(height: 26)

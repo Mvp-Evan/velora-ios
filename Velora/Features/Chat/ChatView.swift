@@ -3,6 +3,8 @@ import Combine
 
 struct ChatView: View {
     let conversation: Conversation
+    /// sheet 弹出时需要关闭按钮；NavigationLink 推入时用系统返回
+    var presentedAsSheet = false
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var router: AppRouter
     @Environment(\.dismiss) private var dismiss
@@ -42,7 +44,13 @@ struct ChatView: View {
         .background(Color.vBackground)
         .navigationTitle(conversation.peer.nickname)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Image(systemName: "chevron.left") } } }
+        .toolbar {
+            if presentedAsSheet {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
         .task {
             await load()
             WebSocketClient.shared.events

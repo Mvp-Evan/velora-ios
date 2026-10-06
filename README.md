@@ -20,7 +20,7 @@
 
 - Xcode 16+（Swift 5.10）
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen)（`brew install xcodegen`）
-- 运行中的 [velora-server](https://github.com/Mvp-Evan/velora-server)（默认 `http://localhost:8080`）
+- 运行中的 [velora-server](https://github.com/Mvp-Evan/velora-server)（默认 `http://localhost:5052`，服务端监听 `0.0.0.0:5052`）
 
 ## 快速开始
 
@@ -35,7 +35,7 @@ open Velora.xcodeproj
 API 地址在 `Velora/Core/AppConfig.swift`：
 
 ```swift
-static let baseURL = URL(string: "http://localhost:8080")!
+static let baseURL = URL(string: "http://localhost:5052")!
 ```
 
 模拟器访问本机服务端请保持上述 localhost；真机请改为电脑局域网 IP。

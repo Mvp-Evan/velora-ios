@@ -1,8 +1,8 @@
 import Foundation
 
 enum AppConfig {
-    /// 模拟器可直接访问宿主机 localhost；真机请改为电脑局域网 IP，如 http://192.168.1.10:8080
-    static let baseURL = URL(string: "http://localhost:8080")!
+    /// 生产服务器；本地调试可改回 http://localhost:5052
+    static let baseURL = URL(string: "http://47.98.250.121")!
     static var apiURL: URL { baseURL.appendingPathComponent("api/v1") }
     static var wsURL: URL {
         var c = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
