@@ -42,13 +42,19 @@ struct LotDetailView: View {
         .sheet(isPresented: $showBidSheet) {
             if let lot = model.lot { BidSheet(lot: lot, model: model).presentationDetents([.height(420)]).presentationDragIndicator(.visible) }
         }
+        .sheet(isPresented: $model.needsDeposit) {
+            if let lot = model.lot {
+                DepositCashierSheet(lot: lot) { model.needsDeposit = false }
+                    .presentationDetents([.height(420)]).presentationDragIndicator(.visible)
+            }
+        }
         .sheet(isPresented: $showAllBids) {
             if let lot = model.lot { BidHistorySheet(lot: lot).presentationDetents([.medium, .large]) }
         }
         .sheet(item: $chatConv) { conv in NavigationStack { ChatView(conversation: conv, presentedAsSheet: true) } }
         .sheet(item: $legalDoc) { LegalDocumentView(document: $0) }
         .sheet(item: Binding(get: { orderToOpen.map(IDBox.init) }, set: { orderToOpen = $0?.id })) { box in
-            NavigationStack { OrderDetailView(orderId: box.id) }
+            NavigationStack { OrderDetailView(orderId: box.id, presentedAsSheet: true) }
         }
         .fullScreenCover(isPresented: $showGallery) {
             if let lot = model.lot { GalleryView(images: lot.images, index: $imageIndex) }

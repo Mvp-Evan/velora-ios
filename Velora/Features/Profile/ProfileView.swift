@@ -6,33 +6,44 @@ struct ProfileView: View {
     @State private var wallet: Wallet?
     @State private var showEdit = false
     @State private var showLogoutConfirm = false
+    @State private var pendingPaymentCount = 0
+    @State private var pendingShipCount = 0
+    @State private var pendingReceiveCount = 0
+    /// 卖家待处理：待付款 + 待发货
+    @State private var sellerActionCount = 0
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: VSpace.l) {
-                    header
-                    orderEntry
-                    lotsEntry
-                    assetsEntry
-                    settingsEntry
+            GeometryReader { geo in
+                let topInset = geo.safeAreaInsets.top
+                ScrollView {
+                    VStack(spacing: VSpace.l) {
+                        header(topInset: topInset)
+                        orderEntry
+                        lotsEntry
+                        assetsEntry
+                        settingsEntry
+                    }
+                    .padding(.bottom, 100)
+                    .padding(.top, -topInset)
                 }
-                .padding(.bottom, 100)
+                .background(Color.vBackground)
+                .toolbar(.hidden, for: .navigationBar)
+                .refreshable { await refresh() }
+                .task { await refresh() }
             }
-            .background(Color.vBackground)
-            .toolbar(.hidden, for: .navigationBar)
-            .refreshable { await refresh() }
-            .task { await refresh() }
         }
+        .id(router.meStackID)
         .sheet(isPresented: $showEdit) { EditProfileView() }
         .confirmationDialog("退出登录？", isPresented: $showLogoutConfirm, titleVisibility: .visible) {
             Button("退出登录", role: .destructive) { session.logout(); router.tab = .home }
         }
     }
 
-    private var header: some View {
+    private func header(topInset: CGFloat) -> some View {
         ZStack(alignment: .topLeading) {
-            VGradient.brand.frame(height: 230).ignoresSafeArea()
+            VGradient.brand
+                .frame(height: 230 + topInset)
                 .mask(LinearGradient(colors: [.black, .black, .black.opacity(0)], startPoint: .top, endPoint: .bottom))
             VStack(alignment: .leading, spacing: VSpace.l) {
                 HStack {
@@ -83,7 +94,8 @@ struct ProfileView: View {
                     }
                 }
             }
-            .padding(.horizontal, VSpace.l).padding(.top, VSpace.s)
+            .padding(.horizontal, VSpace.l)
+            .padding(.top, topInset + VSpace.s)
         }
     }
 
@@ -104,9 +116,9 @@ struct ProfileView: View {
                     NavigationLink { OrderListView(role: "buyer") } label: { HStack(spacing: 2) { Text("全部订单"); Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)) }.font(.vCaption).foregroundStyle(Color.vTextSecondary) }
                 }
                 HStack {
-                    entry("creditcard", "待付款", .vPrimary) { OrderListView(role: "buyer", initialStatus: "pending_payment") }
-                    entry("shippingbox", "待发货", .vBlue) { OrderListView(role: "buyer", initialStatus: "paid") }
-                    entry("truck.box", "待收货", .vGold) { OrderListView(role: "buyer", initialStatus: "shipped") }
+                    entry("creditcard", "待付款", .vPrimary, badge: pendingPaymentCount) { OrderListView(role: "buyer", initialStatus: "pending_payment") }
+                    entry("shippingbox", "待发货", .vBlue, badge: pendingShipCount) { OrderListView(role: "buyer", initialStatus: "paid") }
+                    entry("truck.box", "待收货", .vGold, badge: pendingReceiveCount) { OrderListView(role: "buyer", initialStatus: "shipped") }
                     entry("checkmark.seal", "已完成", .vGreen) { OrderListView(role: "buyer", initialStatus: "completed") }
                 }
             }
@@ -122,17 +134,27 @@ struct ProfileView: View {
                     entry("flag.checkered", "我的拍品", .vCarbon) { MyLotsView(kind: .mine) }
                     entry("hand.raised", "我的出价", .vPrimary) { MyLotsView(kind: .bids) }
                     entry("heart", "我的关注", .vPrimary) { MyLotsView(kind: .follows) }
-                    entry("tag", "我卖出的", .vGreen) { OrderListView(role: "seller") }
+                    entry("tag", "我卖出的", .vGreen, badge: sellerActionCount) { OrderListView(role: "seller") }
                 }
             }
         }
         .padding(.horizontal, VSpace.l)
     }
 
-    private func entry<D: View>(_ icon: String, _ title: String, _ tint: Color, @ViewBuilder _ dest: @escaping () -> D) -> some View {
+    private func entry<D: View>(_ icon: String, _ title: String, _ tint: Color, badge: Int = 0, @ViewBuilder _ dest: @escaping () -> D) -> some View {
         NavigationLink { dest() } label: {
             VStack(spacing: 7) {
-                Image(systemName: icon).font(.system(size: 20, weight: .medium)).foregroundStyle(tint).frame(height: 24)
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: icon).font(.system(size: 20, weight: .medium)).foregroundStyle(tint).frame(width: 28, height: 24)
+                    if badge > 0 {
+                        Text(badge > 99 ? "99+" : "\(badge)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(Color.vPrimary, in: Capsule())
+                            .offset(x: 10, y: -6)
+                    }
+                }
                 Text(title).font(.vMicro).foregroundStyle(Color.vTextSecondary)
             }
             .frame(maxWidth: .infinity)
@@ -177,9 +199,22 @@ struct ProfileView: View {
     }
 
     private func refresh() async {
-        guard session.isLoggedIn else { return }
+        guard session.isLoggedIn else {
+            pendingPaymentCount = 0; pendingShipCount = 0; pendingReceiveCount = 0
+            sellerActionCount = 0
+            return
+        }
         await session.refreshMe()
         wallet = try? await API.wallet()
+        async let pay = API.myOrders(role: "buyer", status: "pending_payment", page: 1)
+        async let ship = API.myOrders(role: "buyer", status: "paid", page: 1)
+        async let recv = API.myOrders(role: "buyer", status: "shipped", page: 1)
+        async let sellerPay = API.myOrders(role: "seller", status: "pending_payment", page: 1)
+        async let sellerShip = API.myOrders(role: "seller", status: "paid", page: 1)
+        pendingPaymentCount = (try? await pay)?.total ?? 0
+        pendingShipCount = (try? await ship)?.total ?? 0
+        pendingReceiveCount = (try? await recv)?.total ?? 0
+        sellerActionCount = ((try? await sellerPay)?.total ?? 0) + ((try? await sellerShip)?.total ?? 0)
     }
 }
 

@@ -135,7 +135,7 @@ struct MainTabView: View {
             NavigationStack { LotDetailView(lotId: box.id) }
         }
         .sheet(item: Binding(get: { router.pendingOrder.map(IDBox.init) }, set: { router.pendingOrder = $0?.id })) { box in
-            NavigationStack { OrderDetailView(orderId: box.id) }
+            NavigationStack { OrderDetailView(orderId: box.id, presentedAsSheet: true) }
         }
     }
 }
@@ -171,7 +171,7 @@ struct VTabBar: View {
         return Button {
             if t != .home && t != .auctions && !session.isLoggedIn { router.showLogin = true; return }
             Haptics.light()
-            router.tab = t
+            router.select(t)
         } label: {
             VStack(spacing: 3) {
                 ZStack(alignment: .topTrailing) {

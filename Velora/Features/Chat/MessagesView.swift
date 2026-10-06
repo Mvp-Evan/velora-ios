@@ -7,7 +7,10 @@ struct MessagesView: View {
     @EnvironmentObject private var router: AppRouter
     @State private var convs: [Conversation] = []
     @State private var state: LoadState = .idle
+    @State private var markingAll = false
     @State private var bag = Set<AnyCancellable>()
+
+    private var totalUnread: Int { convs.reduce(0) { $0 + $1.unread } }
 
     var body: some View {
         NavigationStack {
@@ -35,6 +38,19 @@ struct MessagesView: View {
             }
             .background(Color.vBackground)
             .navigationTitle("消息")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    if totalUnread > 0 || session.unread > 0 {
+                        Button {
+                            Task { await markAllRead() }
+                        } label: {
+                            Text(markingAll ? "处理中…" : "全部已读")
+                                .font(.vCaptionMedium)
+                        }
+                        .disabled(markingAll)
+                    }
+                }
+            }
             .refreshable { await load() }
             .task {
                 await load()
@@ -45,6 +61,7 @@ struct MessagesView: View {
                     .store(in: &bag)
             }
         }
+        .id(router.messagesStackID)
     }
 
     private var noticeCard: some View {
@@ -72,6 +89,23 @@ struct MessagesView: View {
         if convs.isEmpty { state = .loading }
         do { convs = try await API.conversations(); state = .loaded }
         catch { state = .failed((error as? APIError)?.message ?? "加载失败") }
+    }
+
+    private func markAllRead() async {
+        markingAll = true
+        defer { markingAll = false }
+        do {
+            try await API.markAllConversationsRead()
+            convs = convs.map { c in
+                var copy = c
+                copy.unread = 0
+                return copy
+            }
+            await session.refreshMe()
+            Haptics.light()
+        } catch {
+            ToastCenter.shared.error(error)
+        }
     }
 }
 

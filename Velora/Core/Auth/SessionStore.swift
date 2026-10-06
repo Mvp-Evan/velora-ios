@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine
 
 /// 登录态、当前用户、未读数；全局单例注入 Environment
 @MainActor
@@ -13,6 +14,7 @@ final class SessionStore: ObservableObject {
 
     private(set) var accessToken: String?
     private var refreshToken: String?
+    private var bag = Set<AnyCancellable>()
 
     private enum K { static let access = "access_token"; static let refresh = "refresh_token"; static let user = "cached_user" }
 
@@ -46,6 +48,19 @@ final class SessionStore: ObservableObject {
         guard isLoggedIn else { return }
         await refreshMe()
         WebSocketClient.shared.connect(token: accessToken)
+        listenUnreadEvents()
+    }
+
+    /// 全局监听新消息，保证消息 Tab 角标及时更新
+    private func listenUnreadEvents() {
+        bag.removeAll()
+        WebSocketClient.shared.events
+            .filter { $0.type == "message_new" }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { await self?.refreshMe() }
+            }
+            .store(in: &bag)
     }
 
     func refreshMe() async {
@@ -62,11 +77,13 @@ final class SessionStore: ObservableObject {
         apply(pair)
         await refreshMe()
         WebSocketClient.shared.connect(token: accessToken)
+        listenUnreadEvents()
     }
 
     func logout() {
         if let r = refreshToken { Task { await API.logout(r) } }
         clear()
+        bag.removeAll()
         WebSocketClient.shared.connect(token: nil)
     }
 

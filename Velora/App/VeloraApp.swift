@@ -49,7 +49,23 @@ final class AppRouter: ObservableObject {
     @Published var showLogin = false
     /// 拍卖间等沉浸页隐藏底部 Tab
     @Published var hideTabBar = false
+    /// 再点当前 Tab 时递增，强制对应 NavigationStack 回到根
+    @Published var meStackID = UUID()
+    @Published var messagesStackID = UUID()
 
     func open(lot id: Int64) { pendingLot = id }
     func open(order id: Int64) { pendingOrder = id }
+
+    func select(_ t: Tab) {
+        if tab == t {
+            switch t {
+            case .me: meStackID = UUID(); hideTabBar = false
+            case .messages: messagesStackID = UUID(); hideTabBar = false
+            default: break
+            }
+        } else {
+            tab = t
+            hideTabBar = false
+        }
+    }
 }

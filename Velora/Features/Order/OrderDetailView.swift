@@ -3,8 +3,11 @@ import SwiftUI
 /// 订单详情：待付款时即结算页（地址 + 费用明细 + 收银台）；其余状态显示时间线
 struct OrderDetailView: View {
     let orderId: Int64
+    /// sheet 弹出时需要关闭；NavigationLink 推入时用系统返回
+    var presentedAsSheet = false
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: SessionStore
+    @EnvironmentObject private var router: AppRouter
     @StateObject private var model: OrderModel
     @State private var showAddressPicker = false
     @State private var showCashier = false
@@ -12,14 +15,14 @@ struct OrderDetailView: View {
     @State private var result: PaymentResult?
     @State private var chatConv: Conversation?
 
-    init(orderId: Int64) {
+    init(orderId: Int64, presentedAsSheet: Bool = false) {
         self.orderId = orderId
+        self.presentedAsSheet = presentedAsSheet
         _model = StateObject(wrappedValue: OrderModel(orderId: orderId))
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Color.vBackground.ignoresSafeArea()
+        Group {
             switch model.state {
             case .idle, .loading: VLoadingView()
             case .failed(let m): VErrorView(message: m) { Task { await model.load() } }
@@ -35,18 +38,24 @@ struct OrderDetailView: View {
                             infoCard(o)
                         }
                         .padding(VSpace.l)
-                        .padding(.bottom, 100)
                     }
                     .refreshable { await model.load() }
-                    bottomBar(o)
+                    .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar(o) }
                 }
             }
         }
+        .background(Color.vBackground)
         .navigationTitle(model.order?.isSeller == true ? "卖出订单" : "订单详情")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Image(systemName: "chevron.left") } }
+            if presentedAsSheet {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+            }
         }
+        .onAppear { if !presentedAsSheet { router.hideTabBar = true } }
+        .onDisappear { if !presentedAsSheet { router.hideTabBar = false } }
         .task { await model.load() }
         .sheet(isPresented: $showAddressPicker) {
             AddressListView(selecting: true) { addr in
@@ -159,7 +168,11 @@ struct OrderDetailView: View {
                     VKeyValue(key: "买家佣金", value: o.buyerPremium == 0 ? "免佣" : o.buyerPremium.display, valueColor: o.buyerPremium == 0 ? .vGreen : .vText)
                     VKeyValue(key: "运费", value: "卖家承担", valueColor: .vGreen)
                     Rectangle().fill(Color.vSeparator).frame(height: 0.5)
-                    VKeyValue(key: o.status == .pendingPayment ? "应付" : "实付", value: o.buyerTotal.display, valueColor: .vPrimary, bold: true)
+                    VKeyValue(key: o.status == .pendingPayment ? "应付" : "实付", value: o.payAmount.display, valueColor: .vPrimary, bold: true)
+                    if o.depositApplied > 0 {
+                        VKeyValue(key: "押金抵扣", value: "-\(o.depositApplied.display)", valueColor: .vTextSecondary)
+                        VKeyValue(key: "订单总额", value: o.buyerTotal.display, valueColor: .vTextSecondary)
+                    }
                 }
             }
         }
@@ -248,11 +261,16 @@ struct OrderDetailView: View {
                 case .pendingPayment:
                     VStack(alignment: .leading, spacing: 0) {
                         Text("应付").font(.vMicro).foregroundStyle(Color.vTextTertiary)
-                        VPriceText(amount: o.buyerTotal, size: 20)
+                        VPriceText(amount: o.payAmount, size: 20)
                     }
                     .frame(width: 110, alignment: .leading)
-                    VPrimaryButton(title: "立即付款", icon: "creditcard.fill", disabled: !o.hasAddress) {
-                        if !o.hasAddress { ToastCenter.shared.show("请先选择收货地址"); showAddressPicker = true } else { showCashier = true }
+                    VPrimaryButton(title: "立即付款", icon: "creditcard.fill") {
+                        if !o.hasAddress {
+                            ToastCenter.shared.show("请先选择收货地址")
+                            showAddressPicker = true
+                        } else {
+                            showCashier = true
+                        }
                     }
                 case .shipped: VPrimaryButton(title: "确认收货", icon: "checkmark.seal.fill", loading: model.working) { Task { await model.confirm() } }
                 case .paid: VPrimaryButton(title: "等待卖家发货", style: .dark, disabled: true) {}

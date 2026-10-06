@@ -77,6 +77,23 @@ enum API {
         try await c.request(.POST, "lots/\(lotId)/bids", body: .json(JSONDict(["amount": amount])))
     }
 
+    struct LotDepositInfo: Decodable {
+        let deposit: LotDeposit?
+    }
+    struct LotDeposit: Codable, Identifiable, Hashable {
+        let id: Int64
+        let lotId: Int64
+        let buyerId: Int64
+        let amount: Money
+        var status: String
+    }
+    static func lotDeposit(_ lotId: Int64) async throws -> LotDepositInfo {
+        try await c.request(.GET, "lots/\(lotId)/deposit")
+    }
+    static func createDepositPayment(lotId: Int64, provider: String) async throws -> Payment {
+        try await c.request(.POST, "lots/\(lotId)/deposit/payments", body: .json(JSONDict(["provider": provider])))
+    }
+
     // MARK: Orders / Payments
     static func order(_ id: Int64) async throws -> OrderDetail { try await c.request(.GET, "orders/\(id)") }
     static func setOrderAddress(_ id: Int64, addressId: Int64) async throws -> Order {
@@ -116,6 +133,9 @@ enum API {
     static func conversations() async throws -> [Conversation] { try await c.request(.GET, "conversations") }
     static func openConversation(lotId: Int64) async throws -> Conversation {
         try await c.request(.POST, "conversations", body: .json(JSONDict(["lot_id": lotId])))
+    }
+    static func markAllConversationsRead() async throws {
+        _ = try await c.request(.POST, "conversations/read-all") as Empty
     }
     static func messages(_ convId: Int64, before: Int64? = nil) async throws -> [Message] {
         try await c.request(.GET, "conversations/\(convId)/messages", query: ["before": before.map(String.init), "limit": "50"])

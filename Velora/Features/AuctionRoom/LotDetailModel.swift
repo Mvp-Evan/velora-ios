@@ -27,6 +27,7 @@ final class LotDetailModel: ObservableObject {
     @Published var feed: [FeedItem] = []
     @Published var prompt: Prompt?
     @Published var bidding = false
+    @Published var needsDeposit = false
     @Published var priceBump = false
     @Published var customAmount: String = ""
 
@@ -97,6 +98,14 @@ final class LotDetailModel: ObservableObject {
         bidding = true
         defer { bidding = false }
         do {
+            if let lot, lot.depositAmount > 0 {
+                let info = try? await API.lotDeposit(lotId)
+                if info?.deposit?.status != "held" && info?.deposit?.status != "applied" {
+                    needsDeposit = true
+                    ToastCenter.shared.show("请先缴纳竞拍押金 \(lot.depositAmount.display)", .info)
+                    return false
+                }
+            }
             let r = try await API.bid(lotId, amount: amount)
             lot = r.lot
             Haptics.success()
@@ -111,6 +120,9 @@ final class LotDetailModel: ObservableObject {
                 case "already_leading": ToastCenter.shared.show("您已是当前最高出价", .info)
                 case "own_lot": ToastCenter.shared.show("不能对自己的拍品出价", .error)
                 case "auction_not_live": ToastCenter.shared.show("拍卖未在进行中", .error); await load()
+                case "conflict" where e.message.contains("押金"):
+                    needsDeposit = true
+                    ToastCenter.shared.show(e.message, .info)
                 default: ToastCenter.shared.error(e)
                 }
             } else { ToastCenter.shared.error(error) }

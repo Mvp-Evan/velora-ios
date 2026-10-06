@@ -63,7 +63,7 @@ struct WalletView: View {
             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
 
             HStack(spacing: VSpace.m) {
-                smallCard("在途货款", w.pendingBalance, "买家确认收货后入账", .vGold, "clock.badge.checkmark")
+                smallCard("冻结未到账", w.pendingBalance, "买家确认收货后入账", .vGold, "lock.fill")
                 smallCard("累计提现", w.totalWithdrawn, "已到账银行卡", .vGreen, "arrow.down.to.line")
             }
         }

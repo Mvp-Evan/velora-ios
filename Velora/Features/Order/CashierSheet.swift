@@ -22,7 +22,10 @@ struct CashierSheet: View {
         VStack(spacing: VSpace.l) {
             VStack(spacing: 6) {
                 Text("订单金额").font(.vCaption).foregroundStyle(Color.vTextSecondary)
-                VPriceText(amount: order.buyerTotal, size: 36, color: .vText)
+                VPriceText(amount: order.payAmount, size: 36, color: .vText)
+                if order.depositApplied > 0 {
+                    Text("已抵扣押金 \(order.depositApplied.display)").font(.vMicro).foregroundStyle(Color.vTextTertiary)
+                }
                 HStack(spacing: 4) {
                     Image(systemName: "timer").font(.system(size: 10))
                     Text("支付剩余 \(order.payDeadline.countdownText(to: ticker.now))").font(.vMono(12, weight: .medium))
@@ -64,7 +67,7 @@ struct CashierSheet: View {
             if paying {
                 HStack(spacing: 8) { ProgressView().tint(Color.vPrimary); Text(stage).font(.vCaption).foregroundStyle(Color.vTextSecondary) }
             }
-            VPrimaryButton(title: "确认支付 \(order.buyerTotal.display)", loading: paying, disabled: selected == nil, action: pay)
+            VPrimaryButton(title: "确认支付 \(order.payAmount.display)", loading: paying, disabled: selected == nil, action: pay)
             Text("支付由第三方渠道完成，Velora 不会保存您的支付密码").font(.vMicro).foregroundStyle(Color.vTextTertiary)
         }
         .padding(VSpace.xl)

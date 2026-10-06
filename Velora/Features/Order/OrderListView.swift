@@ -9,6 +9,7 @@ struct OrderListView: View {
     @State private var state: LoadState = .idle
     @State private var page = 1
     @State private var hasMore = true
+    @State private var shipOrder: Order?
 
     private var segments: [(String, String)] {
         role == "seller"
@@ -28,9 +29,10 @@ struct OrderListView: View {
                     else {
                         LazyVStack(spacing: VSpace.m) {
                             ForEach(orders) { o in
-                                NavigationLink { OrderDetailView(orderId: o.id) } label: { OrderRow(order: o) }
-                                    .buttonStyle(.plain)
-                                    .onAppear { if o.id == orders.last?.id, hasMore { Task { await loadMore() } } }
+                                OrderRow(order: o) {
+                                    shipOrder = o
+                                }
+                                .onAppear { if o.id == orders.last?.id, hasMore { Task { await loadMore() } } }
                             }
                         }
                         .padding(VSpace.l)
@@ -44,6 +46,11 @@ struct OrderListView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { status = initialStatus ?? ""; await load() }
         .onChange(of: status) { _, _ in Task { await load() } }
+        .sheet(item: $shipOrder) { o in
+            ShipSheet(order: o) { Task { await load() } }
+                .presentationDetents([.height(360)])
+                .presentationDragIndicator(.visible)
+        }
     }
 
     private func load() async {
@@ -65,37 +72,56 @@ struct OrderListView: View {
 
 struct OrderRow: View {
     let order: Order
+    var onShip: () -> Void = {}
+
     var body: some View {
         VStack(spacing: 10) {
-            HStack {
-                HStack(spacing: 6) {
-                    VAvatar(url: (order.isSeller ? order.buyer : order.seller).avatar, size: 18)
-                    Text((order.isSeller ? order.buyer : order.seller).nickname).font(.vCaption).foregroundStyle(Color.vTextSecondary)
-                }
-                Spacer()
-                Text(order.status.label).font(.vCaptionMedium).foregroundStyle(statusColor)
-            }
-            HStack(spacing: 12) {
-                RemoteImage(order.lot?.cover ?? "").frame(width: 72, height: 72).clipShape(RoundedRectangle(cornerRadius: VRadius.m, style: .continuous))
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(order.lot?.title ?? "拍品").font(.vBodyMedium).lineLimit(2)
-                    HStack(spacing: 4) {
-                        if let s = order.lot?.scale, !s.isEmpty { VTagChip(text: s) }
-                        if let b = order.lot?.brand, !b.isEmpty { VTagChip(text: b) }
+            NavigationLink { OrderDetailView(orderId: order.id) } label: {
+                VStack(spacing: 10) {
+                    HStack {
+                        HStack(spacing: 6) {
+                            VAvatar(url: (order.isSeller ? order.buyer : order.seller).avatar, size: 18)
+                            Text((order.isSeller ? order.buyer : order.seller).nickname).font(.vCaption).foregroundStyle(Color.vTextSecondary)
+                        }
+                        Spacer()
+                        Text(order.status.label).font(.vCaptionMedium).foregroundStyle(statusColor)
                     }
-                    Text(order.createdAt.relativeText).font(.vMicro).foregroundStyle(Color.vTextTertiary)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(order.isSeller ? "到手" : "实付").font(.vMicro).foregroundStyle(Color.vTextTertiary)
-                    VPriceText(amount: order.isSeller ? order.sellerNet : order.buyerTotal, size: 16, color: .vText)
+                    HStack(spacing: 12) {
+                        RemoteImage(order.lot?.cover ?? "").frame(width: 72, height: 72).clipShape(RoundedRectangle(cornerRadius: VRadius.m, style: .continuous))
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(order.lot?.title ?? "拍品").font(.vBodyMedium).lineLimit(2)
+                            HStack(spacing: 4) {
+                                if let s = order.lot?.scale, !s.isEmpty { VTagChip(text: s) }
+                                if let b = order.lot?.brand, !b.isEmpty { VTagChip(text: b) }
+                            }
+                            Text(order.createdAt.relativeText).font(.vMicro).foregroundStyle(Color.vTextTertiary)
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(order.isSeller ? "到手" : "实付").font(.vMicro).foregroundStyle(Color.vTextTertiary)
+                            VPriceText(amount: order.isSeller ? order.sellerNet : order.buyerTotal, size: 16, color: .vText)
+                        }
+                    }
                 }
             }
-            if order.status == .pendingPayment || order.status == .shipped || (order.isSeller && order.status == .paid) {
+            .buttonStyle(.plain)
+
+            if showsAction {
                 HStack {
                     Spacer()
-                    Text(actionHint).font(.vCaptionMedium).foregroundStyle(Color.vPrimary)
-                        .padding(.horizontal, 12).padding(.vertical, 6).overlay(Capsule().stroke(Color.vPrimary, lineWidth: 1))
+                    if order.isSeller && order.status == .paid {
+                        Button(action: onShip) {
+                            Text("去发货").font(.vCaptionMedium).foregroundStyle(Color.vPrimary)
+                                .padding(.horizontal, 12).padding(.vertical, 6).overlay(Capsule().stroke(Color.vPrimary, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        NavigationLink { OrderDetailView(orderId: order.id) } label: {
+                            Text(actionHint).font(.vCaptionMedium).foregroundStyle(Color.vPrimary)
+                                .padding(.horizontal, 12).padding(.vertical, 6).overlay(Capsule().stroke(Color.vPrimary, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
         }
@@ -103,8 +129,11 @@ struct OrderRow: View {
         .background(Color.vSurface, in: RoundedRectangle(cornerRadius: VRadius.l, style: .continuous))
     }
 
+    private var showsAction: Bool {
+        order.status == .pendingPayment || order.status == .shipped || (order.isSeller && order.status == .paid)
+    }
     private var actionHint: String {
-        if order.isSeller { return order.status == .paid ? "去发货" : "查看" }
+        if order.isSeller { return "查看" }
         switch order.status { case .pendingPayment: return "去付款"; case .shipped: return "确认收货"; default: return "查看" }
     }
     private var statusColor: Color {

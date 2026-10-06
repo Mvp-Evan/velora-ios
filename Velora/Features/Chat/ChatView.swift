@@ -51,6 +51,12 @@ struct ChatView: View {
                 }
             }
         }
+        .onAppear {
+            if !presentedAsSheet { router.hideTabBar = true }
+        }
+        .onDisappear {
+            if !presentedAsSheet { router.hideTabBar = false }
+        }
         .task {
             await load()
             WebSocketClient.shared.events

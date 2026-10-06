@@ -114,6 +114,7 @@ struct Lot: Codable, Identifiable, Hashable {
     var boxStatus: String
     var location: String
     var startPrice: Money
+    var depositAmount: Money
     var bidIncrement: Money
     var currentPrice: Money
     var currentBidderId: Int64?
@@ -204,6 +205,8 @@ struct Order: Codable, Identifiable, Hashable {
     let buyerTotal: Money
     let sellerCommission: Money
     let sellerNet: Money
+    var depositApplied: Money = 0
+    var amountDue: Money = 0
     var status: OrderStatus
     let payDeadline: Date
     var paidAt: Date?
@@ -221,6 +224,8 @@ struct Order: Codable, Identifiable, Hashable {
 
     var isSeller: Bool { role == "seller" }
     var hasAddress: Bool { !(address?["name"] ?? "").isEmpty }
+    /// 实际应付（押金抵扣后）；旧数据无字段时回退到 buyerTotal
+    var payAmount: Money { amountDue > 0 || depositApplied > 0 ? amountDue : buyerTotal }
     var addressLine: String {
         guard let a = address else { return "" }
         return (a["province"] ?? "") + (a["city"] ?? "") + (a["district"] ?? "") + (a["detail"] ?? "")

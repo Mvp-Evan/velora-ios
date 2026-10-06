@@ -169,6 +169,8 @@ struct PublishView: View {
             VStack(spacing: 0) {
                 moneyRow("起拍价", required: true, text: $draft.startPriceYuan, hint: "¥")
                 VDivider()
+                moneyRow("竞拍押金", required: true, text: $draft.depositYuan, hint: "¥", placeholder: "买家出价前需缴纳")
+                VDivider()
                 moneyRow("保留价", text: $draft.reservePriceYuan, hint: "¥", placeholder: "选填，未达则流拍")
                 VDivider()
                 moneyRow("加价幅度", required: true, text: $draft.incrementYuan, hint: "¥")
@@ -310,6 +312,7 @@ final class PublishDraft: ObservableObject {
         var boxStatus = ""
         var location = ""
         var startPriceYuan = ""
+        var depositYuan = "10"
         var reservePriceYuan = ""
         var incrementYuan = "50"
         var durationSeconds = 86400
@@ -329,6 +332,7 @@ final class PublishDraft: ObservableObject {
     @Published var boxStatus = ""
     @Published var location = ""
     @Published var startPriceYuan = ""
+    @Published var depositYuan = "10"
     @Published var reservePriceYuan = ""
     @Published var incrementYuan = "50"
     @Published var durationSeconds = 86400
@@ -336,20 +340,20 @@ final class PublishDraft: ObservableObject {
     @Published var startNow = true
     @Published var startAt = Date().addingTimeInterval(3600)
 
-    private static let key = "publish_draft_v1"
+    private static let key = "publish_draft_v2"
 
     init() {}
 
     private var snapshot: Snapshot {
         get {
             Snapshot(images: images, title: title, description: description, category: category, brand: brand, scale: scale, series: series,
-                     condition: condition, boxStatus: boxStatus, location: location, startPriceYuan: startPriceYuan, reservePriceYuan: reservePriceYuan,
+                     condition: condition, boxStatus: boxStatus, location: location, startPriceYuan: startPriceYuan, depositYuan: depositYuan, reservePriceYuan: reservePriceYuan,
                      incrementYuan: incrementYuan, durationSeconds: durationSeconds, antiSnipeSeconds: antiSnipeSeconds, startNow: startNow, startAt: startAt)
         }
         set {
             images = newValue.images; title = newValue.title; description = newValue.description; category = newValue.category
             brand = newValue.brand; scale = newValue.scale; series = newValue.series; condition = newValue.condition; boxStatus = newValue.boxStatus
-            location = newValue.location; startPriceYuan = newValue.startPriceYuan; reservePriceYuan = newValue.reservePriceYuan
+            location = newValue.location; startPriceYuan = newValue.startPriceYuan; depositYuan = newValue.depositYuan; reservePriceYuan = newValue.reservePriceYuan
             incrementYuan = newValue.incrementYuan; durationSeconds = newValue.durationSeconds; antiSnipeSeconds = newValue.antiSnipeSeconds
             startNow = newValue.startNow; startAt = max(newValue.startAt, Date().addingTimeInterval(3600))
         }
@@ -367,27 +371,29 @@ final class PublishDraft: ObservableObject {
 
     func reset() {
         images = []; title = ""; description = ""; category = ""; brand = ""; scale = ""; series = ""; condition = ""; boxStatus = ""; location = ""
-        startPriceYuan = ""; reservePriceYuan = ""; incrementYuan = "50"; durationSeconds = 86400; antiSnipeSeconds = 120; startNow = true
+        startPriceYuan = ""; depositYuan = "10"; reservePriceYuan = ""; incrementYuan = "50"; durationSeconds = 86400; antiSnipeSeconds = 120; startNow = true
         UserDefaults.standard.removeObject(forKey: Self.key)
     }
 
     var startPrice: Money? { Double(startPriceYuan).map { Money(($0 * 100).rounded()) } }
+    var deposit: Money? { Double(depositYuan).map { Money(($0 * 100).rounded()) } }
     var reservePrice: Money? { Double(reservePriceYuan).map { Money(($0 * 100).rounded()) } }
     var increment: Money? { Double(incrementYuan).map { Money(($0 * 100).rounded()) } }
 
     var isValid: Bool {
         !images.isEmpty && !title.isBlank && !category.isEmpty && (startPrice ?? 0) >= 100 && (increment ?? 0) >= 100
+            && (deposit ?? 0) >= 1000 && (deposit ?? 0) <= (startPrice ?? 0)
             && (reservePrice == nil || reservePrice! >= startPrice!)
     }
 
     func body() -> JSONDict? {
-        guard isValid, let sp = startPrice, let inc = increment else { return nil }
+        guard isValid, let sp = startPrice, let inc = increment, let dep = deposit else { return nil }
         let iso = ISO8601DateFormatter()
         return JSONDict([
             "title": title.trimmingCharacters(in: .whitespaces), "description": description, "images": images,
             "category": category, "brand": brand, "scale": scale, "series": series, "condition": condition,
             "box_status": boxStatus, "location": location,
-            "start_price": sp, "reserve_price": reservePrice, "bid_increment": inc,
+            "start_price": sp, "deposit_amount": dep, "reserve_price": reservePrice, "bid_increment": inc,
             "start_at": startNow ? nil : iso.string(from: startAt),
             "duration_seconds": durationSeconds, "anti_snipe_seconds": antiSnipeSeconds,
         ])
@@ -395,10 +401,10 @@ final class PublishDraft: ObservableObject {
 
     /// 本地预览用的 Lot 对象
     func previewLot(seller: User?) -> Lot? {
-        guard let sp = startPrice, let inc = increment, let seller else { return nil }
+        guard let sp = startPrice, let inc = increment, let dep = deposit, let seller else { return nil }
         let start = startNow ? Date() : startAt
         return Lot(id: 0, sellerId: seller.id, title: title, description: description, images: images, category: category, brand: brand,
-                   scale: scale, series: series, condition: condition, boxStatus: boxStatus, location: location, startPrice: sp, bidIncrement: inc,
+                   scale: scale, series: series, condition: condition, boxStatus: boxStatus, location: location, startPrice: sp, depositAmount: dep, bidIncrement: inc,
                    currentPrice: sp, currentBidderId: nil, bidCount: 0, startAt: start, endAt: start.addingTimeInterval(TimeInterval(durationSeconds)),
                    durationSeconds: durationSeconds, antiSnipeSeconds: antiSnipeSeconds, extensionCount: 0, status: startNow ? .live : .scheduled,
                    followCount: 0, viewCount: 0, winnerId: nil, orderId: nil, createdAt: Date(), seller: seller, currentBidder: nil,
