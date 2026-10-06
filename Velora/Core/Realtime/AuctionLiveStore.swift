@@ -73,6 +73,8 @@ final class AuctionLiveStore: ObservableObject {
         case "auction_extended":
             lotDeltas.send((lotId, LotDelta(endAt: ev.date("end_at"))))
             bidEvents.send(ev)
+            let when = ev.date("end_at")?.shortText ?? "稍后"
+            push(.init(type: ev.type, title: "拍卖已延时 2 分钟", message: "截止前有新出价，结束时间改为 \(when)", lotId: lotId, orderId: nil))
         case "auction_started":
             lotDeltas.send((lotId, LotDelta(endAt: ev.date("end_at"), status: .live)))
             bidEvents.send(ev)

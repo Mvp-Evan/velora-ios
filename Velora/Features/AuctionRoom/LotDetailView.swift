@@ -15,6 +15,7 @@ struct LotDetailView: View {
     @State private var showGallery = false
     @State private var chatConv: Conversation?
     @State private var orderToOpen: Int64?
+    @State private var legalDoc: LegalDocument?
 
     init(lotId: Int64, preload: Lot? = nil) {
         self.lotId = lotId
@@ -45,6 +46,7 @@ struct LotDetailView: View {
             if let lot = model.lot { BidHistorySheet(lot: lot).presentationDetents([.medium, .large]) }
         }
         .sheet(item: $chatConv) { conv in NavigationStack { ChatView(conversation: conv, presentedAsSheet: true) } }
+        .sheet(item: $legalDoc) { LegalDocumentView(document: $0) }
         .sheet(item: Binding(get: { orderToOpen.map(IDBox.init) }, set: { orderToOpen = $0?.id })) { box in
             NavigationStack { OrderDetailView(orderId: box.id) }
         }
@@ -301,8 +303,12 @@ struct LotDetailView: View {
     private func rulesCard(_ lot: Lot) -> some View {
         VCard {
             VStack(alignment: .leading, spacing: 10) {
-                Text("拍卖规则").font(.vHeadline)
-                rule("timer", "结束前 \(lot.antiSnipeSeconds / 60) 分钟内出价，自动延时 \(lot.antiSnipeSeconds / 60) 分钟（已延时 \(lot.extensionCount) 次）")
+                HStack {
+                    Text("拍卖规则").font(.vHeadline)
+                    Spacer()
+                    Button("查看完整规则") { legalDoc = .auctionRules }.font(.vCaptionMedium).foregroundStyle(Color.vPrimary)
+                }
+                rule("timer", "截止前 2 分钟内如有出价，拍卖自动延时 2 分钟（已延时 \(lot.extensionCount) 次）")
                 rule("checkmark.shield", "拍中后 24 小时内完成付款，逾期订单自动取消并影响信用")
                 rule("percent", "买家无需支付佣金；卖家按成交价支付平台服务费")
                 rule("shippingbox", "卖家在买家付款后 48 小时内发货，买家确认收货后货款入账")
@@ -452,7 +458,7 @@ struct FeedRow: View {
                 Spacer()
                 Text(amount.display).font(.vMono(15, weight: .bold)).foregroundStyle(isTop ? Color.vPrimary : Color.vText)
             case .extended:
-                systemRow("clock.arrow.circlepath", "触发防狙击，拍卖已延时", .vBlue)
+                systemRow("clock.arrow.circlepath", "截止前出价，已自动延时 2 分钟", .vBlue)
             case .started:
                 systemRow("flag.fill", "拍卖开始", .vGreen)
             case .ended(let sold):
@@ -525,14 +531,14 @@ struct PromptCard: View {
     }
     private var title: String {
         switch prompt {
-        case .outbid: return "您的出价被超越了"; case .extended: return "拍卖已延时"; case .won: return "恭喜您拍中！"
+        case .outbid: return "您的出价被超越了"; case .extended: return "拍卖已延时 2 分钟"; case .won: return "恭喜您拍中！"
         case .lost: return "很遗憾，与它擦肩而过"; case .unsold: return "本次流拍"; case .cancelled: return "拍卖已取消"
         }
     }
     private var message: String {
         switch prompt {
         case .outbid(let m): return "有人出了更高的价格，最低需出 \(m.display) 才能重回领先。"
-        case .extended(let d): return "结束前出现新出价，结束时间延长至 \(d.shortText)。"
+        case .extended(let d): return "截止前 2 分钟内出现新出价，已按平台规则自动延时 2 分钟。新的结束时间为 \(d.shortText)。"
         case .won: return "「\(lot?.title ?? "")」已归您所有，请在 24 小时内完成付款。"
         case .lost: return "拍品已被他人竞得，拍场里还有更多好车等你。"
         case .unsold: return "未达到成交条件，您可以调整起拍价后重新上拍。"
@@ -548,6 +554,7 @@ struct BidSheet: View {
     @ObservedObject var model: LotDetailModel
     @Environment(\.dismiss) private var dismiss
     @State private var yuan: String = ""
+    @State private var showRules = false
     @FocusState private var focused: Bool
 
     private var amount: Money? { Double(yuan).map { Money(($0 * 100).rounded()) } }
@@ -589,7 +596,12 @@ struct BidSheet: View {
             if let a = amount, !valid {
                 Text("出价不得低于 \(lot.minNextBid.display)（您输入 \(a.display)）").font(.vCaption).foregroundStyle(Color.vPrimary)
             } else {
-                Text("出价后不可撤回，拍中需在 24 小时内付款").font(.vCaption).foregroundStyle(Color.vTextTertiary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("出价后不可撤回，拍中需在 24 小时内付款。截止前 2 分钟内出价将自动延时 2 分钟。")
+                        .font(.vCaption).foregroundStyle(Color.vTextTertiary)
+                    Button("查看完整拍卖规则") { showRules = true }.font(.vCaptionMedium).foregroundStyle(Color.vPrimary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             VPrimaryButton(title: amount.map { "确认出价 \($0.display)" } ?? "确认出价", loading: model.bidding, disabled: !valid) {
@@ -599,6 +611,7 @@ struct BidSheet: View {
         }
         .padding(VSpace.xl)
         .background(Color.vSurface)
+        .sheet(isPresented: $showRules) { LegalDocumentView(document: .auctionRules) }
         .onAppear { yuan = fmt(lot.minNextBid); focused = true }
     }
 

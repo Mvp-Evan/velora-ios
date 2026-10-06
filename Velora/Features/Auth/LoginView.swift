@@ -9,6 +9,7 @@ struct LoginView: View {
     @State private var cooldown = 0
     @State private var loggingIn = false
     @State private var agreed = true
+    @State private var legalDoc: LegalDocument?
     @FocusState private var focus: Field?
     enum Field { case phone, code }
 
@@ -54,14 +55,20 @@ struct LoginView: View {
 
                         VPrimaryButton(title: "登录 / 注册", loading: loggingIn, disabled: !phone.isPhone || code.count < 4 || !agreed, action: login)
 
-                        HStack(spacing: 6) {
+                        HStack(alignment: .top, spacing: 6) {
                             Button { agreed.toggle() } label: {
                                 Image(systemName: agreed ? "checkmark.circle.fill" : "circle").foregroundStyle(agreed ? Color.vPrimary : Color.vTextTertiary)
                             }
-                            Text("已阅读并同意 ").font(.vCaption).foregroundStyle(Color.vTextSecondary)
-                            + Text("《用户协议》").font(.vCaption).foregroundStyle(Color.vPrimary)
-                            + Text(" 与 ").font(.vCaption).foregroundStyle(Color.vTextSecondary)
-                            + Text("《隐私政策》").font(.vCaption).foregroundStyle(Color.vPrimary)
+                            .padding(.top, 1)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("已阅读并同意").font(.vCaption).foregroundStyle(Color.vTextSecondary)
+                                HStack(spacing: 8) {
+                                    Button("《使用说明》") { legalDoc = .appGuide }
+                                    Button("《拍卖规则》") { legalDoc = .auctionRules }
+                                    Button("《免责声明》") { legalDoc = .disclaimer }
+                                }
+                                .font(.vCaption).foregroundStyle(Color.vPrimary)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -81,6 +88,7 @@ struct LoginView: View {
         }
         .onAppear { focus = .phone }
         .onTapGesture { hideKeyboard() }
+        .sheet(item: $legalDoc) { LegalDocumentView(document: $0) }
     }
 
     private func field(icon: String, placeholder: String, text: Binding<String>, keyboard: UIKeyboardType, focused: Field) -> some View {

@@ -14,6 +14,7 @@ struct PublishView: View {
     @State private var fee: FeeBreakdown?
     @State private var showPreview = false
     @State private var feeTask: Task<Void, Never>?
+    @State private var legalDoc: LegalDocument?
 
     var body: some View {
         NavigationStack {
@@ -57,6 +58,7 @@ struct PublishView: View {
             .onChange(of: draft.startPriceYuan) { _, _ in scheduleFee() }
             .onChange(of: draft.category) { _, _ in scheduleFee() }
             .task { await filters.load(); scheduleFee() }
+            .sheet(item: $legalDoc) { LegalDocumentView(document: $0) }
         }
     }
 
@@ -182,10 +184,8 @@ struct PublishView: View {
                 }
                 VDivider()
                 VFormRow(title: "防狙击") {
-                    Spacer()
-                    Picker("", selection: $draft.antiSnipeSeconds) {
-                        Text("关闭").tag(0); Text("1 分钟").tag(60); Text("3 分钟").tag(180); Text("5 分钟").tag(300)
-                    }.tint(Color.vText)
+                    Text("平台规则：截止前 2 分钟内出价，自动延时 2 分钟")
+                        .font(.vCaption).foregroundStyle(Color.vTextSecondary).multilineTextAlignment(.trailing)
                 }
                 VDivider()
                 VFormRow(title: "开拍时间") {
@@ -229,6 +229,11 @@ struct PublishView: View {
                     VKeyValue(key: "预计到账", value: fee.sellerNet.display, valueColor: .vPrimary, bold: true)
                     Text("实际服务费按最终成交价计算，买家确认收货后入账钱包；收入可能涉及个人所得税，平台将按规定协助申报。")
                         .font(.vMicro).foregroundStyle(Color.vTextTertiary)
+                    HStack(spacing: 16) {
+                        Button("完整拍卖规则") { legalDoc = .auctionRules }
+                        Button("免责声明") { legalDoc = .disclaimer }
+                    }
+                    .font(.vCaptionMedium).foregroundStyle(Color.vPrimary)
                 } else {
                     Text("填写起拍价后自动计算平台服务费").font(.vCaption).foregroundStyle(Color.vTextTertiary)
                 }
@@ -308,7 +313,7 @@ final class PublishDraft: ObservableObject {
         var reservePriceYuan = ""
         var incrementYuan = "50"
         var durationSeconds = 86400
-        var antiSnipeSeconds = 60
+        var antiSnipeSeconds = 120
         var startNow = true
         var startAt = Date().addingTimeInterval(3600)
     }
@@ -327,7 +332,7 @@ final class PublishDraft: ObservableObject {
     @Published var reservePriceYuan = ""
     @Published var incrementYuan = "50"
     @Published var durationSeconds = 86400
-    @Published var antiSnipeSeconds = 60
+    @Published var antiSnipeSeconds = 120
     @Published var startNow = true
     @Published var startAt = Date().addingTimeInterval(3600)
 
@@ -362,7 +367,7 @@ final class PublishDraft: ObservableObject {
 
     func reset() {
         images = []; title = ""; description = ""; category = ""; brand = ""; scale = ""; series = ""; condition = ""; boxStatus = ""; location = ""
-        startPriceYuan = ""; reservePriceYuan = ""; incrementYuan = "50"; durationSeconds = 86400; antiSnipeSeconds = 60; startNow = true
+        startPriceYuan = ""; reservePriceYuan = ""; incrementYuan = "50"; durationSeconds = 86400; antiSnipeSeconds = 120; startNow = true
         UserDefaults.standard.removeObject(forKey: Self.key)
     }
 

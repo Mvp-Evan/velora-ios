@@ -9,7 +9,7 @@ enum MockData {
                          images: ["https://picsum.photos/seed/velora1/800/800", "https://picsum.photos/seed/velora2/800/800"],
                          category: "F1", brand: "BBR", scale: "1:18", series: "法拉利", condition: "全新", boxStatus: "原盒全套", location: "上海",
                          startPrice: 180000, bidIncrement: 5000, currentPrice: 265000, currentBidderId: 2, bidCount: 17,
-                         startAt: Date().addingTimeInterval(-3600), endAt: Date().addingTimeInterval(1800), durationSeconds: 5400, antiSnipeSeconds: 60,
+                         startAt: Date().addingTimeInterval(-3600), endAt: Date().addingTimeInterval(1800), durationSeconds: 5400, antiSnipeSeconds: 120,
                          extensionCount: 1, status: .live, followCount: 56, viewCount: 1289, winnerId: nil, orderId: nil, createdAt: Date(),
                          seller: seller, currentBidder: User(id: 2, nickname: "F*****子", avatar: "https://i.pravatar.cc/150?img=5", bio: nil, location: nil, creditScore: 90, soldCount: 0, wonCount: 3, lotCount: 0, phoneMasked: nil, createdAt: nil),
                          cover: "https://picsum.photos/seed/velora1/800/800", displayPrice: 265000, minNextBid: 270000, isFollowing: true,

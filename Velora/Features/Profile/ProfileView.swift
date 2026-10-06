@@ -159,6 +159,12 @@ struct ProfileView: View {
             VStack(spacing: 0) {
                 NavigationLink { FeeRulesView() } label: { VNavRow(icon: "percent", iconTint: .vPrimary, title: "平台服务费说明") }
                 VDivider(inset: 58)
+                NavigationLink { LegalDocumentView(document: .appGuide, showDone: false) } label: { VNavRow(icon: "book", iconTint: .vBlue, title: "使用说明") }
+                VDivider(inset: 58)
+                NavigationLink { LegalDocumentView(document: .auctionRules, showDone: false) } label: { VNavRow(icon: "flag.checkered", iconTint: .vPrimary, title: "拍卖规则") }
+                VDivider(inset: 58)
+                NavigationLink { LegalDocumentView(document: .disclaimer, showDone: false) } label: { VNavRow(icon: "exclamationmark.shield", iconTint: .vGold, title: "免责声明") }
+                VDivider(inset: 58)
                 NavigationLink { AboutView() } label: { VNavRow(icon: "info.circle", iconTint: .vTextSecondary, title: "关于 Velora", value: "v0.1.0") }
                 if session.isLoggedIn {
                     VDivider(inset: 58)
@@ -335,18 +341,32 @@ struct FeeRulesView: View {
 
 struct AboutView: View {
     var body: some View {
-        VStack(spacing: VSpace.l) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 24, style: .continuous).fill(VGradient.brand).frame(width: 96, height: 96)
-                Text("V").font(.system(size: 56, weight: .black, design: .rounded)).foregroundStyle(.white)
+        ScrollView {
+            VStack(spacing: VSpace.l) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous).fill(VGradient.brand).frame(width: 96, height: 96)
+                    Text("V").font(.system(size: 56, weight: .black, design: .rounded)).foregroundStyle(.white)
+                }
+                .padding(.top, 40)
+                Text("Velora").font(.vLargeTitle)
+                Text("赛车模型实时拍卖社区").font(.vBody).foregroundStyle(Color.vTextSecondary)
+                Text("版本 0.1.0 · 服务端 \(AppConfig.baseURL.absoluteString)").font(.vMicro).foregroundStyle(Color.vTextTertiary)
+
+                VCard(padding: 0) {
+                    VStack(spacing: 0) {
+                        NavigationLink { LegalDocumentView(document: .appGuide, showDone: false) } label: { VNavRow(icon: "book", iconTint: .vBlue, title: "使用说明") }
+                        VDivider(inset: 58)
+                        NavigationLink { LegalDocumentView(document: .auctionRules, showDone: false) } label: { VNavRow(icon: "flag.checkered", iconTint: .vPrimary, title: "拍卖规则") }
+                        VDivider(inset: 58)
+                        NavigationLink { LegalDocumentView(document: .disclaimer, showDone: false) } label: { VNavRow(icon: "exclamationmark.shield", iconTint: .vGold, title: "免责声明") }
+                    }
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, VSpace.l)
+                Spacer(minLength: 40)
             }
-            .padding(.top, 40)
-            Text("Velora").font(.vLargeTitle)
-            Text("赛车模型实时拍卖社区").font(.vBody).foregroundStyle(Color.vTextSecondary)
-            Text("版本 0.1.0 · 服务端 \(AppConfig.baseURL.absoluteString)").font(.vMicro).foregroundStyle(Color.vTextTertiary)
-            Spacer()
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
         .background(Color.vBackground)
         .navigationTitle("关于")
         .navigationBarTitleDisplayMode(.inline)

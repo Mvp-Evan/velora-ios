@@ -75,10 +75,12 @@ struct OrderDetailView: View {
     private func statusHeader(_ o: Order) -> some View {
         ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous).fill(headerGradient(o))
-            HStack {
+            HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(statusTitle(o)).font(.vTitle(22)).foregroundStyle(.white)
-                    Text(statusSubtitle(o)).font(.vCaption).foregroundStyle(.white.opacity(0.85))
+                    ForEach(statusLines(o), id: \.self) { line in
+                        Text(line).font(.vCaption).foregroundStyle(.white.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
+                    }
                     if o.status == .pendingPayment && !o.isSeller {
                         HStack(spacing: 4) {
                             Image(systemName: "timer")
@@ -87,12 +89,12 @@ struct OrderDetailView: View {
                         .foregroundStyle(.white).padding(.top, 4)
                     }
                 }
-                Spacer()
+                Spacer(minLength: 8)
                 Image(systemName: statusIcon(o)).font(.system(size: 44, weight: .light)).foregroundStyle(.white.opacity(0.9))
             }
             .padding(VSpace.xl)
         }
-        .frame(height: 120)
+        .frame(minHeight: 120)
     }
 
     @ObservedObject private var ticker = Ticker.shared
@@ -274,14 +276,17 @@ struct OrderDetailView: View {
         }
         switch o.status { case .pendingPayment: return "等待付款"; case .paid: return "等待卖家发货"; case .shipped: return "卖家已发货"; case .completed: return "交易完成"; case .cancelled: return "订单已取消"; case .refunded: return "已退款" }
     }
-    private func statusSubtitle(_ o: Order) -> String {
+    private func statusLines(_ o: Order) -> [String] {
         switch o.status {
-        case .pendingPayment: return o.isSeller ? "买家需在 \(o.payDeadline.shortText) 前完成付款" : "请在 \(o.payDeadline.shortText) 前完成付款，逾期自动取消"
-        case .paid: return o.isSeller ? "请在 48 小时内发货并填写物流单号" : "卖家正在打包，请耐心等待"
-        case .shipped: return o.isSeller ? "等待买家确认收货后货款入账" : "收到后请确认收货，货款将打给卖家"
-        case .completed: return o.isSeller ? "货款已入账钱包" : "感谢您的信任，欢迎再次光临"
-        case .cancelled: return "未在规定时间内完成付款"
-        case .refunded: return "款项已原路退回"
+        case .pendingPayment:
+            return o.isSeller
+                ? ["买家需在 \(o.payDeadline.shortText) 前完成付款", "逾期未付订单将自动取消"]
+                : ["请在 \(o.payDeadline.shortText) 前完成付款", "逾期未付将自动取消订单"]
+        case .paid: return [o.isSeller ? "请在 48 小时内发货并填写物流单号" : "卖家正在打包，请耐心等待"]
+        case .shipped: return [o.isSeller ? "等待买家确认收货后货款入账" : "收到后请确认收货，货款将打给卖家"]
+        case .completed: return [o.isSeller ? "货款已入账钱包" : "感谢您的信任，欢迎再次光临"]
+        case .cancelled: return ["未在规定时间内完成付款"]
+        case .refunded: return ["款项已原路退回"]
         }
     }
     private func statusIcon(_ o: Order) -> String {
