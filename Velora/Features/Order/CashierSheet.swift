@@ -10,6 +10,8 @@ struct PaymentResult: Identifiable {
 /// 收银台：选择支付方式 → 创建支付单 → 拉起 SDK → 轮询服务端确认
 struct CashierSheet: View {
     let order: Order
+    /// Override payment create (e.g. POST balance-payments for D25). Defaults to orders/{id}/payments.
+    var createPayment: ((Int64, String) async throws -> Payment)? = nil
     let onFinish: (PaymentResult) -> Void
     @State private var methods: [PaymentMethod] = []
     @State private var selected: String?
@@ -17,6 +19,17 @@ struct CashierSheet: View {
     @State private var paying = false
     @State private var stage = ""
     @ObservedObject private var ticker = Ticker.shared
+    @State private var fetchedAt = Date()
+
+    private var payRemain: Int {
+        OrderLogic.payRemainSeconds(
+            deadline: order.payDeadline,
+            serverRemainSec: order.payRemainSec,
+            serverTime: order.serverTime,
+            fetchedAtLocal: fetchedAt,
+            nowLocal: ticker.now
+        )
+    }
 
     var body: some View {
         VStack(spacing: VSpace.l) {
@@ -28,9 +41,10 @@ struct CashierSheet: View {
                 }
                 HStack(spacing: 4) {
                     Image(systemName: "timer").font(.system(size: 10))
-                    Text("支付剩余 \(order.payDeadline.countdownText(to: ticker.now))").font(.vMono(12, weight: .medium))
+                    Text("支付剩余 \(OrderLogic.formatCountdown(payRemain))").font(.vMono(12, weight: .medium))
                 }
-                .foregroundStyle(Color.vPrimary)
+                .foregroundStyle(OrderLogic.isCountdownUrgent(payRemain) ? Color.vPrimary : Color.vTextSecondary)
+                Text(OrderCenterCopy.serverTimeHint).font(.vMicro).foregroundStyle(Color.vTextTertiary)
             }
             .padding(.top, VSpace.m)
 
@@ -68,7 +82,7 @@ struct CashierSheet: View {
                 HStack(spacing: 8) { ProgressView().tint(Color.vPrimary); Text(stage).font(.vCaption).foregroundStyle(Color.vTextSecondary) }
             }
             VPrimaryButton(title: "确认支付 \(order.payAmount.display)", loading: paying, disabled: selected == nil, action: pay)
-            Text("支付由第三方渠道完成，Velora 不会保存您的支付密码").font(.vMicro).foregroundStyle(Color.vTextTertiary)
+            Text("支付由第三方渠道完成，毂毂不会保存您的支付密码").font(.vMicro).foregroundStyle(Color.vTextTertiary)
         }
         .padding(VSpace.xl)
         .background(Color.vSurface)
@@ -97,8 +111,13 @@ struct CashierSheet: View {
             defer { paying = false }
             stage = "正在创建支付单…"
             let payment: Payment
-            do { payment = try await API.createPayment(orderId: order.id, provider: provider) }
-            catch { ToastCenter.shared.error(error); return }
+            do {
+                if let createPayment {
+                    payment = try await createPayment(order.id, provider)
+                } else {
+                    payment = try await API.createPayment(orderId: order.id, provider: provider)
+                }
+            } catch { ToastCenter.shared.error(error); return }
 
             stage = "正在拉起\(providerName(provider))…"
             let launch = await svc.launch(payment: payment)

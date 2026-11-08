@@ -1,19 +1,62 @@
 import SwiftUI
 
+/// 卖家钱包：渠道二级商户余额投影 + 渠道提现（DES-v1.3-08-03 / PAY-09）。
 struct WalletView: View {
-    @State private var wallet: Wallet?
-    @State private var ledger: [LedgerEntry] = []
+    @State private var wallet: WalletProjection?
+    @State private var ledger: [WalletLedgerEntry] = []
     @State private var withdrawals: [WithdrawalRequest] = []
     @State private var state: LoadState = .idle
     @State private var tab = 0
     @State private var showWithdraw = false
+    @State private var forbiddenBuyer = false
+    @State private var needSubMerchant = false
 
     var body: some View {
+        Group {
+            if forbiddenBuyer {
+                VEmptyState(
+                    icon: "person.crop.circle.badge.exclamationmark",
+                    title: WalletCopy.buyerForbidden,
+                    message: WalletCopy.guideOnboarding
+                )
+            } else if needSubMerchant {
+                VEmptyState(
+                    icon: "creditcard",
+                    title: WalletCopy.subMerchantRequired,
+                    message: WalletCopy.guideOnboarding,
+                    actionTitle: ProfitSharingCopy.progressTitle
+                ) {
+                    // Navigation handled via links in Me; toast nudge.
+                    ToastCenter.shared.show(WalletCopy.guideOnboarding, .info)
+                }
+            } else {
+                content
+            }
+        }
+        .background(Color.vBackground)
+        .navigationTitle(WalletCopy.homeTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+        .refreshable { await load() }
+        .sheet(isPresented: $showWithdraw) {
+            if let w = wallet {
+                WithdrawSheet(available: w.available) { Task { await load() } }
+                    .presentationDetents([.height(420)])
+            }
+        }
+    }
+
+    private var content: some View {
         ScrollView {
             VStack(spacing: VSpace.l) {
-                if let w = wallet { cards(w) } else { VSkeleton(radius: VRadius.xl).frame(height: 170).padding(.horizontal, VSpace.l) }
+                disclaimer
+                if let w = wallet {
+                    cards(w)
+                } else if state == .loading || state == .idle {
+                    VSkeleton(radius: VRadius.xl).frame(height: 170).padding(.horizontal, VSpace.l)
+                }
 
-                VPillSegments(items: [(0, "收支明细"), (1, "提现记录")], selection: $tab)
+                VPillSegments(items: [(0, WalletCopy.ledgerTitle), (1, WalletCopy.withdrawalsTitle)], selection: $tab)
 
                 switch state {
                 case .idle, .loading: VLoadingView()
@@ -24,37 +67,62 @@ struct WalletView: View {
             }
             .padding(.vertical, VSpace.m)
         }
-        .background(Color.vBackground)
-        .navigationTitle("我的钱包")
-        .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
-        .refreshable { await load() }
-        .sheet(isPresented: $showWithdraw) {
-            if let w = wallet { WithdrawSheet(available: w.availableBalance) { Task { await load() } }.presentationDetents([.height(480)]) }
-        }
     }
 
-    private func cards(_ w: Wallet) -> some View {
+    private var disclaimer: some View {
+        Text(WalletCopy.custodyDisclaimer)
+            .font(.vCaption)
+            .foregroundStyle(Color.vTextSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, VSpace.l)
+            .accessibilityLabel(WalletCopy.custodyDisclaimer)
+    }
+
+    private func cards(_ w: WalletProjection) -> some View {
         VStack(spacing: VSpace.m) {
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous).fill(VGradient.carbon)
                 Circle().fill(Color.vPrimary.opacity(0.8)).frame(width: 200, height: 200).offset(x: 220, y: -60).blur(radius: 40)
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
-                        Text("可用余额").font(.vCaption).foregroundStyle(.white.opacity(0.7))
+                        Text(WalletCopy.availableTitle).font(.vCaption).foregroundStyle(.white.opacity(0.7))
                         Spacer()
-                        Image(systemName: "wallet.pass.fill").foregroundStyle(Color.vGold)
+                        if w.showsSandboxWatermark {
+                            Text(WalletCopy.sandboxWatermark)
+                                .font(.vMicro)
+                                .foregroundStyle(Color.vCarbon)
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(Color.vGold.opacity(0.9), in: Capsule())
+                        } else {
+                            Image(systemName: "wallet.pass.fill").foregroundStyle(Color.vGold)
+                        }
                     }
-                    VPriceText(amount: w.availableBalance, size: 36, color: .white)
-                    HStack {
-                        Text("累计收入 \(w.totalIncome.display)").font(.vMicro).foregroundStyle(.white.opacity(0.7))
+                    VPriceText(amount: w.available, size: 36, color: .white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    HStack(alignment: .center) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            if w.hasSyncError || w.isStale() {
+                                Text(w.hasSyncError ? WalletCopy.syncFailed : WalletCopy.staleHint)
+                                    .font(.vMicro)
+                                    .foregroundStyle(.white.opacity(0.75))
+                            } else if let at = w.lastSyncedAt {
+                                Text("同步于 \(at.relativeText)")
+                                    .font(.vMicro)
+                                    .foregroundStyle(.white.opacity(0.7))
+                            }
+                            Text(WalletCopy.withdrawArriveHint)
+                                .font(.vMicro)
+                                .foregroundStyle(.white.opacity(0.55))
+                        }
                         Spacer()
                         Button { showWithdraw = true } label: {
-                            Text("提现").font(.vCaptionMedium).foregroundStyle(Color.vCarbon)
+                            Text(WalletCopy.withdrawCTA).font(.vCaptionMedium).foregroundStyle(Color.vCarbon)
                                 .padding(.horizontal, 16).padding(.vertical, 7).background(.white, in: Capsule())
                         }
-                        .disabled(w.availableBalance < 100)
-                        .opacity(w.availableBalance < 100 ? 0.5 : 1)
+                        .disabled(w.available < WalletConfigDefaults.withdrawMinFen)
+                        .opacity(w.available < WalletConfigDefaults.withdrawMinFen ? 0.5 : 1)
+                        .accessibilityLabel(WalletCopy.withdrawCTA)
                     }
                 }
                 .padding(VSpace.xl)
@@ -63,42 +131,67 @@ struct WalletView: View {
             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
 
             HStack(spacing: VSpace.m) {
-                smallCard("冻结未到账", w.pendingBalance, "买家确认收货后入账", .vGold, "lock.fill")
-                smallCard("累计提现", w.totalWithdrawn, "已到账银行卡", .vGreen, "arrow.down.to.line")
+                pendingCard(w.pending)
             }
         }
         .padding(.horizontal, VSpace.l)
     }
 
-    private func smallCard(_ title: String, _ amount: Money, _ sub: String, _ tint: Color, _ icon: String) -> some View {
+    private func pendingCard(_ amount: Money) -> some View {
         VCard {
             VStack(alignment: .leading, spacing: 6) {
-                HStack { Text(title).font(.vCaption).foregroundStyle(Color.vTextSecondary); Spacer(); Image(systemName: icon).foregroundStyle(tint).font(.vCaption) }
-                VPriceText(amount: amount, size: 20, color: .vText)
-                Text(sub).font(.vMicro).foregroundStyle(Color.vTextTertiary)
+                HStack {
+                    Text(WalletCopy.pendingTitle).font(.vCaption).foregroundStyle(Color.vTextSecondary)
+                    Spacer()
+                    Image(systemName: "lock.fill").foregroundStyle(Color.vTextTertiary).font(.vCaption)
+                }
+                VPriceText(amount: amount, size: 20, color: .vTextSecondary)
+                    .lineLimit(1)
+                    .accessibilityLabel("\(WalletCopy.pendingTitle) \(amount.display)，\(WalletCopy.pendingHint)")
+                Text(amount > 0 ? WalletCopy.pendingHint : WalletCopy.emptyBalance)
+                    .font(.vMicro)
+                    .foregroundStyle(Color.vTextTertiary)
             }
         }
     }
 
     private var ledgerList: some View {
         VCard(padding: 0) {
-            if ledger.isEmpty { VEmptyState(icon: "list.bullet.rectangle", title: "暂无收支记录") }
-            else {
+            if ledger.isEmpty {
+                VEmptyState(icon: "list.bullet.rectangle", title: WalletCopy.emptyLedger, message: WalletCopy.ledgerNotPlatform)
+            } else {
                 VStack(spacing: 0) {
+                    Text(WalletCopy.ledgerNotPlatform)
+                        .font(.vMicro)
+                        .foregroundStyle(Color.vTextTertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, VSpace.l)
+                        .padding(.top, 12)
                     ForEach(ledger) { e in
                         HStack(spacing: 12) {
-                            Image(systemName: e.direction == "credit" ? "arrow.down.left" : "arrow.up.right")
+                            Image(systemName: e.isCredit ? "arrow.down.left" : "arrow.up.right")
                                 .font(.system(size: 13, weight: .bold))
-                                .foregroundStyle(e.direction == "credit" ? Color.vGreen : Color.vTextSecondary)
+                                .foregroundStyle(e.isCredit ? Color.vGreen : Color.vTextSecondary)
                                 .frame(width: 32, height: 32).background(Color.vFill, in: Circle())
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(e.accountLabel).font(.vBodyMedium)
-                                Text(e.memo.isEmpty ? e.journalId : e.memo).font(.vMicro).foregroundStyle(Color.vTextTertiary).lineLimit(1)
+                                if let no = e.orderNo, !no.isEmpty {
+                                    Text(no).font(.vMicro).foregroundStyle(Color.vTextTertiary).lineLimit(1)
+                                } else if let memo = e.memo, !memo.isEmpty {
+                                    Text(memo).font(.vMicro).foregroundStyle(Color.vTextTertiary).lineLimit(1)
+                                } else if let j = e.journalId {
+                                    Text(j).font(.vMicro).foregroundStyle(Color.vTextTertiary).lineLimit(1)
+                                }
                             }
                             Spacer()
                             VStack(alignment: .trailing, spacing: 3) {
-                                Text((e.direction == "credit" ? "+" : "-") + e.amount.display).font(.vMono(15)).foregroundStyle(e.direction == "credit" ? Color.vGreen : Color.vText)
-                                Text(e.createdAt.relativeText).font(.vMicro).foregroundStyle(Color.vTextTertiary)
+                                Text((e.isCredit ? "+" : "-") + e.amount.display)
+                                    .font(.vMono(15))
+                                    .foregroundStyle(e.isCredit ? Color.vGreen : Color.vText)
+                                    .lineLimit(1)
+                                if let at = e.createdAt {
+                                    Text(at.relativeText).font(.vMicro).foregroundStyle(Color.vTextTertiary)
+                                }
                             }
                         }
                         .padding(.horizontal, VSpace.l).padding(.vertical, 12)
@@ -112,20 +205,31 @@ struct WalletView: View {
 
     private var withdrawalList: some View {
         VCard(padding: 0) {
-            if withdrawals.isEmpty { VEmptyState(icon: "banknote", title: "暂无提现记录") }
-            else {
+            if withdrawals.isEmpty {
+                VEmptyState(icon: "banknote", title: WalletCopy.emptyWithdrawals)
+            } else {
                 VStack(spacing: 0) {
                     ForEach(withdrawals) { w in
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("提现至 \(w.bankAccount?["bank_name"] ?? "银行卡")").font(.vBodyMedium)
-                                Text(w.createdAt.fullText).font(.vMicro).foregroundStyle(Color.vTextTertiary)
-                                if let n = w.note, !n.isEmpty { Text(n).font(.vMicro).foregroundStyle(Color.vPrimary) }
+                                Text("渠道提现").font(.vBodyMedium)
+                                if let at = w.createdAt {
+                                    Text(at.fullText).font(.vMicro).foregroundStyle(Color.vTextTertiary)
+                                }
+                                if let fail = w.failureDisplay {
+                                    Text(fail).font(.vMicro).foregroundStyle(Color.vPrimary).lineLimit(2)
+                                } else if w.requiresReopenChannelWithdraw {
+                                    Text(WalletCopy.reopenChannelWithdraw).font(.vMicro).foregroundStyle(Color.vPrimary)
+                                } else if let no = w.channelWithdrawNo, !no.isEmpty {
+                                    Text(no).font(.vMicro).foregroundStyle(Color.vTextTertiary).lineLimit(1)
+                                }
                             }
                             Spacer()
                             VStack(alignment: .trailing, spacing: 3) {
-                                Text(w.amount.display).font(.vMono(15))
-                                Text(w.statusLabel).font(.vMicro).foregroundStyle(w.status == "paid" ? Color.vGreen : (w.status == "rejected" ? Color.vPrimary : Color.vGold))
+                                Text(w.amount.display).font(.vMono(15)).lineLimit(1)
+                                Text(w.statusLabel)
+                                    .font(.vMicro)
+                                    .foregroundStyle(withdrawColor(w.status))
                             }
                         }
                         .padding(.horizontal, VSpace.l).padding(.vertical, 12)
@@ -137,15 +241,40 @@ struct WalletView: View {
         .padding(.horizontal, VSpace.l)
     }
 
+    private func withdrawColor(_ s: WithdrawalStatus) -> Color {
+        switch s {
+        case .succeeded: return .vGreen
+        case .failed: return .vPrimary
+        case .created, .channelPending: return .vGold
+        }
+    }
+
     private func load() async {
+        forbiddenBuyer = false
+        needSubMerchant = false
         if wallet == nil { state = .loading }
         do {
             async let w = API.wallet()
             async let l = API.ledger()
             async let d = API.withdrawals()
-            wallet = try await w; ledger = try await l.items; withdrawals = try await d
+            wallet = try await w
+            ledger = try await l.items
+            withdrawals = try await d
             state = .loaded
-        } catch { state = .failed((error as? APIError)?.message ?? "加载失败") }
+        } catch let e as APIError {
+            let code = WalletErrorCode.normalize(e.code)
+            if code == .forbidden {
+                forbiddenBuyer = true
+                state = .loaded
+            } else if code == .subMerchantRequired {
+                needSubMerchant = true
+                state = .loaded
+            } else {
+                state = .failed(WalletWithdrawLogic.message(for: e.code, serverMessage: e.message))
+            }
+        } catch {
+            state = .failed("加载失败")
+        }
     }
 }
 
@@ -154,48 +283,92 @@ struct WithdrawSheet: View {
     let done: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var yuan = ""
-    @State private var bank = ""
-    @State private var name = ""
-    @State private var account = ""
     @State private var working = false
+    @State private var confirm = false
+    @State private var idemKey = APIClient.shared.idempotencyKey()
 
     private var amount: Money? { Double(yuan).map { Money(($0 * 100).rounded()) } }
-    private var valid: Bool { (amount ?? 0) >= 100 && (amount ?? 0) <= available && !bank.isBlank && !name.isBlank && account.count >= 8 }
+    private var valid: Bool {
+        guard let amount else { return false }
+        return WalletWithdrawLogic.isAmountValid(amountFen: amount, availableFen: available)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpace.l) {
-            Text("提现").font(.vTitle(20))
+            Text(WalletCopy.withdrawCTA).font(.vTitle(20))
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("¥").font(.vPrice(22))
                 TextField("0.00", text: $yuan).keyboardType(.decimalPad).font(.vPrice(34))
                 Spacer()
-                Button("全部") { yuan = String(format: "%.2f", available.yuan) }.font(.vCaptionMedium)
+                Button("全部") {
+                    yuan = String(format: "%.2f", available.yuan)
+                }.font(.vCaptionMedium)
             }
             .padding(.horizontal, VSpace.l).frame(height: 64)
             .background(Color.vFill, in: RoundedRectangle(cornerRadius: VRadius.l, style: .continuous))
-            Text("可提现 \(available.display)，最低 ¥1，1-3 个工作日到账").font(.vCaption).foregroundStyle(Color.vTextSecondary)
 
-            VStack(spacing: 0) {
-                VFormRow(title: "开户行") { TextField("如：招商银行", text: $bank).multilineTextAlignment(.trailing) }
-                VDivider()
-                VFormRow(title: "户名") { TextField("与实名一致", text: $name).multilineTextAlignment(.trailing) }
-                VDivider()
-                VFormRow(title: "卡号") { TextField("银行卡号", text: $account).keyboardType(.numberPad).font(.vMono(15)).multilineTextAlignment(.trailing) }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("可提现 \(available.display)，\(WalletCopy.withdrawMinHint)")
+                    .font(.vCaption)
+                    .foregroundStyle(Color.vTextSecondary)
+                Text(WalletCopy.withdrawArriveHint)
+                    .font(.vCaption)
+                    .foregroundStyle(Color.vTextSecondary)
+                Text(WalletCopy.withdrawFeeHint)
+                    .font(.vMicro)
+                    .foregroundStyle(Color.vTextTertiary)
+                Text(WalletCopy.custodyDisclaimer)
+                    .font(.vMicro)
+                    .foregroundStyle(Color.vTextTertiary)
             }
-            .background(Color.vFill, in: RoundedRectangle(cornerRadius: VRadius.l, style: .continuous))
 
             Spacer()
-            VPrimaryButton(title: "申请提现", loading: working, disabled: !valid) {
-                guard let a = amount else { return }
-                working = true
-                Task {
-                    defer { working = false }
-                    do { _ = try await API.requestWithdrawal(amount: a, bankName: bank, accountName: name, accountNo: account); ToastCenter.shared.show("提现申请已提交", .success); done(); dismiss() }
-                    catch { ToastCenter.shared.error(error) }
-                }
+            VPrimaryButton(
+                title: working ? WalletCopy.withdrawLoading : WalletCopy.withdrawConfirmTitle,
+                loading: working,
+                disabled: !valid
+            ) {
+                confirm = true
             }
         }
         .padding(VSpace.xl)
         .background(Color.vSurface)
+        .confirmationDialog(
+            WalletCopy.withdrawConfirmTitle,
+            isPresented: $confirm,
+            titleVisibility: .visible
+        ) {
+            Button(WalletCopy.withdrawCTA) { Task { await submit() } }
+            Button("取消", role: .cancel) {}
+        } message: {
+            if let amount {
+                Text("提现 \(amount.display) 至渠道结算账户")
+            }
+        }
+    }
+
+    private func submit() async {
+        guard let amount else { return }
+        if let err = WalletWithdrawLogic.canSubmit(amountFen: amount, availableFen: available) {
+            ToastCenter.shared.show(err.fallbackMessage, .error)
+            return
+        }
+        working = true
+        defer { working = false }
+        do {
+            _ = try await API.requestWithdrawal(amount: amount, idempotencyKey: idemKey)
+            ToastCenter.shared.show(WalletCopy.withdrawSubmitted, .success)
+            done()
+            dismiss()
+        } catch let e as APIError {
+            // Keep same idempotency key on retryable in-flight; rotate on conflict / success path.
+            let code = WalletErrorCode.normalize(e.code)
+            if code == .missingIdempotencyKey {
+                idemKey = APIClient.shared.idempotencyKey()
+            }
+            ToastCenter.shared.show(WalletWithdrawLogic.message(for: e.code, serverMessage: e.message), .error)
+        } catch {
+            ToastCenter.shared.error(error)
+        }
     }
 }

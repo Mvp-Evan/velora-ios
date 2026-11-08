@@ -9,15 +9,22 @@ struct LotCard: View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topLeading) {
                 RemoteImage(lot.cover).frame(height: imageHeight)
-                VStatusBadge(status: lot.status).padding(8)
-                if lot.myBid.hasBid {
-                    Text(lot.myBid.leading ? "领先" : "被超越")
-                        .font(.vMicro).foregroundStyle(.white)
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(lot.myBid.leading ? Color.vGold : Color.vCarbon.opacity(0.8), in: Capsule())
-                        .padding(8)
-                        .frame(maxWidth: .infinity, alignment: .topTrailing)
+                HStack(spacing: 6) {
+                    VStatusBadge(status: lot.status)
+                    Spacer(minLength: 0)
+                    if lot.extensionCount > 0 {
+                        Text(LotCardHeatCopy.delayedBadge)
+                            .font(.vMicro).foregroundStyle(.white)
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(Color.vGold.opacity(0.95), in: Capsule())
+                    } else if lot.myBid.hasBid {
+                        Text(lot.myBid.leading ? "领先" : "被超越")
+                            .font(.vMicro).foregroundStyle(.white)
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(lot.myBid.leading ? Color.vGold : Color.vCarbon.opacity(0.8), in: Capsule())
+                    }
                 }
+                .padding(8)
             }
             .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.l, topTrailingRadius: VRadius.l, style: .continuous))
 

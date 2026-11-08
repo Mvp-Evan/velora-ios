@@ -1,0 +1,73 @@
+{
+  "data": {
+    "nav_schema": {
+      "version": 1,
+      "tabs": [
+        { "key": "buy", "title": "购买", "icon": "bag" },
+        { "key": "community", "title": "社区", "icon": "person.3" },
+        { "key": "publish", "title": "发布", "icon": "plus" },
+        { "key": "inbox", "title": "消息", "icon": "bubble.left.and.bubble.right" },
+        { "key": "me", "title": "我的", "icon": "person" }
+      ],
+      "me_buyer_entries": [
+        { "key": "favorites", "title": "收藏", "icon": "heart", "enabled": true },
+        { "key": "bought", "title": "买到的", "icon": "bag", "enabled": true },
+        { "key": "bids", "title": "竞拍", "icon": "hammer", "enabled": true },
+        { "key": "balance", "title": "补款", "icon": "yensign.circle", "enabled": true },
+        { "key": "lottery", "title": "抽签", "icon": "ticket", "enabled": true },
+        { "key": "subscriptions", "title": "订阅", "icon": "bell", "enabled": true },
+        { "key": "history", "title": "足迹", "icon": "clock", "enabled": true },
+        { "key": "after_sale", "title": "售后", "icon": "wrench.and.screwdriver", "enabled": true },
+        { "key": "deposit", "title": "保证金", "icon": "lock.shield", "enabled": true }
+      ],
+      "me_seller_entries": [
+        { "key": "on_sale", "title": "在售", "icon": "tag", "enabled": true },
+        { "key": "auctions", "title": "拍卖", "icon": "flag.checkered", "enabled": true },
+        { "key": "sold", "title": "售出", "icon": "checkmark.seal", "enabled": true },
+        { "key": "wallet", "title": "钱包", "icon": "wallet.pass", "enabled": true },
+        { "key": "profit", "title": "利润", "icon": "chart.line.uptrend.xyaxis", "enabled": true },
+        { "key": "after_sale", "title": "售后", "icon": "wrench.and.screwdriver", "enabled": true },
+        { "key": "seller_deposit", "title": "卖家保证金", "icon": "lock.shield", "enabled": true }
+      ]
+    },
+    "publish_actions": [
+      { "key": "fixed", "title": "直购", "enabled": true, "requires_capability": "can_fixed" },
+      { "key": "auction", "title": "拍卖", "enabled": true, "requires_capability": "can_auction" },
+      { "key": "post", "title": "帖子", "enabled": false },
+      { "key": "release", "title": "新品发售", "enabled": false, "requires_capability": "can_spot_release" }
+    ],
+    "me": {
+      "status": "active",
+      "real_name_status": "verified",
+      "credit_score": 100,
+      "seller_type": "personal"
+    },
+    "seller": {
+      "seller_type": "personal",
+      "capabilities": {
+        "can_fixed": true,
+        "can_auction": true,
+        "can_batch_list": false,
+        "can_invoice_service": false,
+        "can_session": false,
+        "can_promote": false,
+        "can_spot_release": false,
+        "can_lottery": false,
+        "can_presale": false,
+        "can_special_no": false,
+        "can_store": false,
+        "can_vip": false
+      },
+      "onboarding_status": "finished",
+      "badge": null
+    },
+    "flags": {
+      "nav.v13": true,
+      "community.feed": false,
+      "publish.fixed": true
+    },
+    "server_time": 1730740000000
+  },
+  "error": null,
+  "request_id": "req_bootstrap_fixture"
+}

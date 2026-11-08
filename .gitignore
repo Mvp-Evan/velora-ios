@@ -5,16 +5,17 @@ xcuserdata/
 DerivedData/
 *.xcuserstate
 *.xcscmblueprint
+*.xcodeproj/
 
 # Build
 build/
+.derivedData/
 *.ipa
 *.dSYM.zip
 *.dSYM
 
-# Swift Package Manager
+# Swift Package Manager (Velora module scaffold lives under Packages/ — do not ignore)
 .build/
-Packages/
 Package.resolved
 .swiftpm/
 

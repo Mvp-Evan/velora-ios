@@ -6,10 +6,18 @@ options:
   xcodeVersion: "16.0"
   generateEmptyDirectories: true
   createIntermediateGroups: true
+configs:
+  Debug: debug
+  Staging: release
+  Release: release
+configFiles:
+  Debug: Configs/Debug.xcconfig
+  Staging: Configs/Staging.xcconfig
+  Release: Configs/Release.xcconfig
 settings:
   base:
     SWIFT_VERSION: "5.10"
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "1.3.1"
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
@@ -33,3 +41,61 @@ targets:
         SUPPORTS_MACCATALYST: NO
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         DEVELOPMENT_ASSET_PATHS: "\"Velora/Preview Content\""
+        # API_BASE_URL / WS_URL come from Configs/*.xcconfig → Info.plist keys
+    scheme:
+      testTargets:
+        - VeloraTests
+        - VeloraUITests
+      gatherCoverageData: true
+  VeloraTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: VeloraTests
+        excludes:
+          - "**/.DS_Store"
+          - "Fixtures"
+    resources:
+      - path: VeloraTests/Fixtures
+    dependencies:
+      - target: Velora
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.velora.app.tests
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_APIBaseURL: https://unit-test.api.velora
+        INFOPLIST_KEY_WSBaseURL: wss://unit-test.api.velora/ws
+
+  VeloraUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: VeloraUITests
+        excludes:
+          - "**/.DS_Store"
+    dependencies:
+      - target: Velora
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.velora.app.uitests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Velora:
+    build:
+      targets:
+        Velora: all
+        VeloraTests: [test]
+        VeloraUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - VeloraTests
+        - VeloraUITests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

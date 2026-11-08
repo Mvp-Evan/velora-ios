@@ -1,0 +1,12 @@
+// Debug — temporary shared test host (HTTP). For local server use localhost:5052 instead.
+// Note: `//` starts a comment in xcconfig, so URLs use http:/$()/host
+// Local alternative:
+//   API_BASE_URL = http:/$()/localhost:5052
+//   WS_URL = ws:/$()/localhost:5052
+//   MERCHANT_WEB_BASE_URL = http:/$()/localhost:5173
+
+API_BASE_URL = http:/$()/47.98.250.121
+WS_URL = ws:/$()/47.98.250.121
+MERCHANT_WEB_BASE_URL = http:/$()/47.98.250.121
+
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) DEBUG

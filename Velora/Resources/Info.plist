@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh_CN</string>
 	<key>CFBundleDisplayName</key>
-	<string>Velora</string>
+	<string>毂毂</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -20,6 +20,17 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.velora.paddock43</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>paddock43</string>
+				<string>velora</string>
+			</array>
+		</dict>
 		<dict>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
@@ -50,31 +61,47 @@
 		<string>weixin</string>
 		<string>weixinULAPI</string>
 		<string>weixinURLParamsAPI</string>
+		<string>idauth</string>
+		<string>cyberidentity</string>
 	</array>
+	<key>APIBaseURL</key>
+	<string>$(API_BASE_URL)</string>
+	<key>WSBaseURL</key>
+	<string>$(WS_URL)</string>
+	<key>MerchantWebBaseURL</key>
+	<string>$(MERCHANT_WEB_BASE_URL)</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
+		<!-- Cleartext HTTP exceptions for Debug only (Configs/Debug.xcconfig).
+		     Staging/Release must use https/wss — do not point those configs at http://. -->
 		<key>NSExceptionDomains</key>
 		<dict>
-			<key>47.98.250.121</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-				<key>NSIncludesSubdomains</key>
-				<true/>
-			</dict>
 			<key>localhost</key>
 			<dict>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
 				<true/>
 			</dict>
+			<key>47.98.250.121</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<false/>
+			</dict>
 		</dict>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>用于拍摄拍品照片</string>
+	<string>用于拍摄拍品、卖家补图与发货/开箱取证（须在 App 内拍摄，水印不可裁）</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>用于选择拍品照片</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

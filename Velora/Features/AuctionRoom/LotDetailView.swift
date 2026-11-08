@@ -3,24 +3,36 @@ import SwiftUI
 struct LotDetailView: View {
     let lotId: Int64
     var preload: Lot? = nil
+    /// When set, loads成色 / 问答 / 补图 from listing detail (DES-v1.3-02-04).
+    var listingId: Int64? = nil
 
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var router: AppRouter
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model: LotDetailModel
+    @StateObject private var listingModel: ListingDetailModel
     @State private var imageIndex = 0
     @State private var showBidSheet = false
+    @State private var showProxySheet = false
     @State private var showAllBids = false
     @State private var showCancelConfirm = false
     @State private var showGallery = false
+    @State private var showFlawGallery = false
+    @State private var showSupplementCamera = false
     @State private var chatConv: Conversation?
     @State private var orderToOpen: Int64?
+    @State private var wonOrderToOpen: Int64?
+    @State private var showUnsoldPage = false
     @State private var legalDoc: LegalDocument?
+    @State private var historyAppearedAt = Date()
+    @State private var historySaveEnabled = true
 
-    init(lotId: Int64, preload: Lot? = nil) {
+    init(lotId: Int64, preload: Lot? = nil, listingId: Int64? = nil) {
         self.lotId = lotId
         self.preload = preload
+        self.listingId = listingId
         _model = StateObject(wrappedValue: LotDetailModel(lotId: lotId, preload: preload))
+        _listingModel = StateObject(wrappedValue: ListingDetailModel(listingId: listingId ?? 0, preferredLotId: lotId))
     }
 
     var body: some View {
@@ -36,17 +48,58 @@ struct LotDetailView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
-        .task { await model.load(); model.subscribe() }
+        .task {
+            historyAppearedAt = Date()
+            if let settings = try? await API.meSettings() {
+                historySaveEnabled = settings.saveBrowseHistory
+            }
+            await model.load()
+            model.subscribe()
+            if listingId != nil { await listingModel.load() }
+            try? await Task.sleep(for: .seconds(MeConfigDefaults.historyExposureSec))
+            let lid = listingId ?? listingModel.detail?.id
+            if let lid, lid > 0 {
+                await BrowseHistoryRecorder.recordIfNeeded(
+                    listingId: lid,
+                    sellerId: listingModel.detail?.sellerId ?? model.lot?.sellerId,
+                    meId: session.user?.id,
+                    saveBrowseHistory: historySaveEnabled,
+                    isLoggedIn: session.isLoggedIn,
+                    appearedAt: historyAppearedAt
+                )
+            }
+        }
         .onAppear { router.hideTabBar = true }
         .onDisappear { router.hideTabBar = false; model.unsubscribe() }
+        .onChange(of: listingModel.needsLogin) { _, need in
+            if need {
+                router.showLogin = true
+                listingModel.needsLogin = false
+            }
+        }
         .sheet(isPresented: $showBidSheet) {
             if let lot = model.lot { BidSheet(lot: lot, model: model).presentationDetents([.height(420)]).presentationDragIndicator(.visible) }
         }
+        .sheet(isPresented: $showProxySheet) {
+            if let lot = model.lot {
+                ProxyBidSheet(lot: lot, model: model)
+                    .presentationDetents([.height(560)])
+                    .presentationDragIndicator(.visible)
+                    .task { await model.loadProxyBid() }
+            }
+        }
         .sheet(isPresented: $model.needsDeposit) {
             if let lot = model.lot {
-                DepositCashierSheet(lot: lot) { model.needsDeposit = false }
+                DepositCashierSheet(lot: lot) {
+                    model.needsDeposit = false
+                    // Same Idempotency-Key after deposit freeze (DES-v1.3-03-02 §9).
+                    Task { await model.retryPendingBidAfterDeposit() }
+                }
                     .presentationDetents([.height(420)]).presentationDragIndicator(.visible)
             }
+        }
+        .sheet(isPresented: $model.needsRealName) {
+            NavigationStack { RealNameView() }
         }
         .sheet(isPresented: $showAllBids) {
             if let lot = model.lot { BidHistorySheet(lot: lot).presentationDetents([.medium, .large]) }
@@ -56,13 +109,38 @@ struct LotDetailView: View {
         .sheet(item: Binding(get: { orderToOpen.map(IDBox.init) }, set: { orderToOpen = $0?.id })) { box in
             NavigationStack { OrderDetailView(orderId: box.id, presentedAsSheet: true) }
         }
+        .sheet(item: Binding(get: { wonOrderToOpen.map(IDBox.init) }, set: { wonOrderToOpen = $0?.id })) { box in
+            NavigationStack { AuctionWonView(orderId: box.id, presentedAsSheet: true) }
+        }
+        .sheet(isPresented: $showUnsoldPage) {
+            NavigationStack { AuctionUnsoldView(lotId: lotId, preload: model.lot, presentedAsSheet: true) }
+        }
         .fullScreenCover(isPresented: $showGallery) {
-            if let lot = model.lot { GalleryView(images: lot.images, index: $imageIndex) }
+            if let lot = model.lot {
+                let urls = listingModel.detail?.galleryURLs ?? (lot.images.isEmpty ? [lot.cover] : lot.images)
+                GalleryView(images: urls, index: $imageIndex)
+            }
+        }
+        .fullScreenCover(isPresented: $showFlawGallery) {
+            if let urls = listingModel.detail?.flawImageURLs, !urls.isEmpty {
+                GalleryView(images: urls, index: $imageIndex)
+            }
+        }
+        .fullScreenCover(isPresented: $showSupplementCamera) {
+            SupplementCameraView(
+                listingId: listingId ?? listingModel.listingId,
+                shooterId: session.user?.id ?? 0
+            ) { data in
+                Task { await listingModel.uploadSupplement(jpegData: data) }
+            }
         }
         .overlay { promptOverlay }
+        .overlay { extendToastOverlay }
         .confirmationDialog("确认撤拍？", isPresented: $showCancelConfirm, titleVisibility: .visible) {
             Button("撤拍", role: .destructive) { Task { await model.cancel() } }
-        } message: { Text("撤拍后拍品将不再展示，已有出价的拍品无法撤拍。") }
+        } message: {
+            Text("撤拍后拍品将不再展示。\(AuctionSettlementCopy.cancelDisabledHasBids)。")
+        }
     }
 
     // MARK: Content
@@ -72,12 +150,33 @@ struct LotDetailView: View {
             VStack(spacing: 0) {
                 hero(lot)
                 VStack(spacing: VSpace.m) {
+                    // ITEM-01 order: 图片 → 价格 → 参数 → 成色 → 描述 → 卖家 → 出价 → 问答补图 → 规则
                     priceCard(lot)
-                    if lot.isLive || !model.feed.isEmpty { liveFeed(lot) }
-                    titleCard(lot)
                     attributesCard(lot)
+                    if let d = listingModel.detail {
+                        ConditionFlawSection(detail: d) { idx in
+                            imageIndex = idx
+                            showFlawGallery = true
+                        }
+                    }
+                    titleCard(lot)
                     sellerCard(lot)
-                    rulesCard(lot)
+                    if lot.isLive || !model.feed.isEmpty { liveFeed(lot) }
+                    if listingId != nil || listingModel.detail != nil {
+                        ListingQASection(model: listingModel) { router.showLogin = true }
+                        PhotoRequestSection(
+                            model: listingModel,
+                            onRequireLogin: { router.showLogin = true },
+                            onOpenCamera: { showSupplementCamera = true }
+                        )
+                    }
+                    if let snap = listingModel.detail?.rulesSnapshot {
+                        ListingRulesSection(snapshot: snap, extensionCount: lot.extensionCount) {
+                            legalDoc = .auctionRules
+                        }
+                    } else {
+                        rulesCard(lot)
+                    }
                 }
                 .padding(.horizontal, VSpace.l)
                 .padding(.top, VSpace.m)
@@ -94,7 +193,7 @@ struct LotDetailView: View {
         HStack {
             VIconButton(system: "chevron.left", tint: .white, background: .black.opacity(0.35)) { dismiss() }
             Spacer()
-            ShareLink(item: "Velora 拍品：\(lot.title) 当前 \(lot.displayPrice.display)") {
+            ShareLink(item: "毂毂拍品：\(lot.title) 当前 \(lot.displayPrice.display)") {
                 Image(systemName: "square.and.arrow.up").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
                     .frame(width: 36, height: 36).background(.black.opacity(0.35), in: Circle())
             }
@@ -112,6 +211,14 @@ struct LotDetailView: View {
                     VStatusBadge(status: lot.status)
                     if lot.isLive || lot.isUpcoming {
                         VCountdown(endAt: lot.isUpcoming ? lot.startAt : lot.endAt, status: lot.status, style: .large)
+                        if session.serverClock.showsLargeSkewWarning {
+                            Text("设备时间与服务器偏差较大，请下拉刷新同步")
+                                .font(.vCaption)
+                                .foregroundStyle(.yellow.opacity(0.95))
+                        }
+                        Text("以服务器时间为准")
+                            .font(.vMicro)
+                            .foregroundStyle(.white.opacity(0.65))
                     } else {
                         Text(lot.status == .ended ? "已于 \(lot.endAt.shortText) 成交" : "已结束").font(.vCaption).foregroundStyle(.white.opacity(0.8))
                     }
@@ -142,8 +249,8 @@ struct LotDetailView: View {
                     VStack(alignment: .trailing, spacing: 4) {
                         Text("起拍价 \(lot.startPrice.display)").font(.vMicro).foregroundStyle(Color.vTextTertiary)
                         Text("加价幅度 \(lot.bidIncrement.display)").font(.vMicro).foregroundStyle(Color.vTextTertiary)
-                        if lot.hasReserve {
-                            Text(lot.reserveMet ? "已达保留价" : "未达保留价").font(.vMicro)
+                        if let reserveText = ListingReserveCopy.text(hasReserve: lot.hasReserve, reserveMet: lot.reserveMet) {
+                            Text(reserveText).font(.vMicro)
                                 .foregroundStyle(lot.reserveMet ? Color.vGreen : Color.vGold)
                         }
                     }
@@ -177,17 +284,33 @@ struct LotDetailView: View {
                     .background((lot.myBid.leading ? Color.vGold : Color.vPrimary).opacity(0.1), in: RoundedRectangle(cornerRadius: VRadius.m, style: .continuous))
                 }
 
+                if let proxy = model.proxyBid, proxy.status.canRaise, lot.isLive, !model.isSeller {
+                    proxyStatusRow(proxy)
+                }
+
                 if lot.isLive, !model.isSeller {
-                    if model.isLeading {
+                    if isBanBid {
+                        banBidHint
+                    } else if model.isLeading {
                         Text("您已是当前最高出价，被超越后可再次出价").font(.vCaption).foregroundStyle(Color.vTextSecondary)
+                        if !model.proxyFeatureDisabled {
+                            proxyEntryButton
+                        }
                     } else {
                         VPrimaryButton(title: "立即出价 \(lot.minNextBid.display)", icon: "hammer.fill", loading: model.bidding) {
                             guard requireLogin() else { return }
                             showBidSheet = true
                         }
+                        if !model.proxyFeatureDisabled {
+                            proxyEntryButton
+                        }
                     }
                 } else if lot.isUpcoming, !model.isSeller {
-                    Text("预展中 · \(lot.startAt.shortText) 开拍后即可出价，可先点底部「开拍提醒」").font(.vCaption).foregroundStyle(Color.vTextSecondary)
+                    if isBanBid {
+                        banBidHint
+                    } else {
+                        Text("预展中 · \(lot.startAt.shortText) 开拍后即可出价，可先点底部「开拍提醒」").font(.vCaption).foregroundStyle(Color.vTextSecondary)
+                    }
                 } else if model.isSeller, lot.isLive || lot.isUpcoming {
                     Text("这是你发布的拍品，卖家不能对自己的拍品出价").font(.vCaption).foregroundStyle(Color.vTextSecondary)
                 }
@@ -249,7 +372,12 @@ struct LotDetailView: View {
     private func titleCard(_ lot: Lot) -> some View {
         VCard {
             VStack(alignment: .leading, spacing: VSpace.m) {
-                Text(lot.title).font(.vTitle(19)).foregroundStyle(Color.vText)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if let d = listingModel.detail {
+                        FlawConditionTitleBadge(detail: d)
+                    }
+                    Text(lot.title).font(.vTitle(19)).foregroundStyle(Color.vText)
+                }
                 HStack(spacing: 6) { ForEach(lot.tags, id: \.self) { VTagChip(text: $0, tint: .vPrimary, background: .vPrimarySoft) } }
                 if !lot.description.isEmpty {
                     Text(lot.description).font(.vBody).foregroundStyle(Color.vTextSecondary).lineSpacing(5)
@@ -265,7 +393,7 @@ struct LotDetailView: View {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                     attr("分类", lot.category); attr("品牌", lot.brand)
                     attr("比例", lot.scale); attr("系列", lot.series)
-                    attr("成色", lot.condition); attr("包装", lot.boxStatus)
+                    attr("成色", ListingConditionGrade.displayLabel(lot.condition)); attr("包装", lot.boxStatus)
                     attr("所在地", lot.location); attr("开拍时间", lot.startAt.shortText)
                 }
             }
@@ -338,55 +466,104 @@ struct LotDetailView: View {
                 guard requireLogin() else { return }
                 Task { await model.toggleFollow() }
             }
+            if lot.isLive || lot.isUpcoming {
+                barAction(
+                    icon: model.closingRemindSubscribed ? "bell.fill" : "bell",
+                    title: model.closingRemindSubscribed ? AntiSnipeCopy.closingRemindSubscribed : AntiSnipeCopy.closingRemindAction,
+                    tint: model.closingRemindSubscribed ? .vPrimary : .vTextSecondary
+                ) {
+                    guard requireLogin() else { return }
+                    Task { await model.subscribeClosingRemind() }
+                }
+                .disabled(model.reminding || model.closingRemindSubscribed)
+                .opacity(model.closingRemindSubscribed ? 0.85 : 1)
+            }
             if !model.isSeller {
                 barAction(icon: "bubble.left", title: "咨询", tint: .vTextSecondary) { openChat() }
             }
 
             if model.isSeller {
                 if lot.isLive || lot.isUpcoming {
-                    VPrimaryButton(title: lot.bidCount > 0 ? "已有出价，不可撤拍" : "撤拍", style: .outline, disabled: lot.bidCount > 0) { showCancelConfirm = true }
+                    let blocked = !AuctionSettlementLogic.canSellerCancel(status: lot.status.rawValue, bidCount: lot.bidCount)
+                    VPrimaryButton(
+                        title: blocked ? AuctionSettlementCopy.cancelDisabledHasBids : "撤拍",
+                        style: .outline,
+                        disabled: blocked
+                    ) { showCancelConfirm = true }
                 } else if lot.status == .ended, let oid = lot.orderId {
                     VPrimaryButton(title: "查看订单", style: .dark) { orderToOpen = oid }
+                } else if lot.status == .unsold {
+                    VPrimaryButton(title: AuctionSettlementCopy.relistAction, icon: "arrow.triangle.2.circlepath") {
+                        showUnsoldPage = true
+                    }
                 } else {
                     VPrimaryButton(title: "已结束", disabled: true) {}
                 }
             } else if lot.isLive {
-                HStack(spacing: 8) {
-                    ForEach(model.quickBids.prefix(2), id: \.self) { amt in
-                        Button {
-                            guard requireLogin() else { return }
-                            Task { await model.placeBid(amt) }
-                        } label: {
-                            VStack(spacing: 1) {
-                                Text(amt == lot.minNextBid ? "最低出价" : "加价").font(.vMicro).opacity(0.85)
-                                Text(amt.display).font(.vMono(14, weight: .bold))
+                if isBanBid {
+                    banBidBottomBar
+                } else {
+                    HStack(spacing: 8) {
+                        if model.isLeading, !model.proxyFeatureDisabled {
+                            Button {
+                                guard requireLogin() else { return }
+                                showProxySheet = true
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "bolt.fill")
+                                    Text(model.proxyEntryTitle)
+                                    Spacer()
+                                    Text("领先中").font(.vMicro).opacity(0.85)
+                                }
+                                .font(.vHeadline)
+                                .foregroundStyle(Color.vPrimary)
+                                .padding(.horizontal, 14)
+                                .frame(maxWidth: .infinity).frame(height: 48)
+                                .background(Color.vPrimarySoft, in: RoundedRectangle(cornerRadius: VRadius.l, style: .continuous))
                             }
-                            .foregroundStyle(amt == lot.minNextBid ? Color.vPrimary : .white)
-                            .frame(maxWidth: .infinity).frame(height: 48)
-                            .background(amt == lot.minNextBid ? Color.vPrimarySoft : Color.vCarbon, in: RoundedRectangle(cornerRadius: VRadius.l, style: .continuous))
+                            .disabled(model.proxySaving)
+                        } else {
+                            ForEach(model.quickBids.prefix(2), id: \.self) { amt in
+                                Button {
+                                    guard requireLogin() else { return }
+                                    Task { await model.placeBid(amt) }
+                                } label: {
+                                    VStack(spacing: 1) {
+                                        Text(amt == lot.minNextBid ? "最低出价" : "加价").font(.vMicro).opacity(0.85)
+                                        Text(amt.display).font(.vMono(14, weight: .bold))
+                                    }
+                                    .foregroundStyle(amt == lot.minNextBid ? Color.vPrimary : .white)
+                                    .frame(maxWidth: .infinity).frame(height: 48)
+                                    .background(amt == lot.minNextBid ? Color.vPrimarySoft : Color.vCarbon, in: RoundedRectangle(cornerRadius: VRadius.l, style: .continuous))
+                                }
+                                .disabled(model.bidding || model.isLeading)
+                                .opacity(model.isLeading ? 0.45 : 1)
+                            }
+                            Button {
+                                guard requireLogin() else { return }
+                                showBidSheet = true
+                            } label: {
+                                VStack(spacing: 1) {
+                                    Text(model.isLeading ? "领先中" : "自定义").font(.vMicro).opacity(0.85)
+                                    Text(model.isLeading ? "已领先" : "出价").font(.vMono(14, weight: .bold))
+                                }
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity).frame(height: 48)
+                                .background(VGradient.brand, in: RoundedRectangle(cornerRadius: VRadius.l, style: .continuous))
+                            }
+                            .disabled(model.bidding || model.isLeading)
+                            .opacity(model.isLeading ? 0.45 : 1)
                         }
-                        .disabled(model.bidding || model.isLeading)
-                        .opacity(model.isLeading ? 0.45 : 1)
                     }
-                    Button {
-                        guard requireLogin() else { return }
-                        showBidSheet = true
-                    } label: {
-                        VStack(spacing: 1) {
-                            Text(model.isLeading ? "领先中" : "自定义").font(.vMicro).opacity(0.85)
-                            Text(model.isLeading ? "已领先" : "出价").font(.vMono(14, weight: .bold))
-                        }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity).frame(height: 48)
-                        .background(VGradient.brand, in: RoundedRectangle(cornerRadius: VRadius.l, style: .continuous))
-                    }
-                    .disabled(model.bidding || model.isLeading)
-                    .opacity(model.isLeading ? 0.45 : 1)
                 }
             } else if lot.isUpcoming {
-                VPrimaryButton(title: "开拍后可出价 · \(lot.startAt.shortText)", style: .dark, disabled: true) {}
+                if isBanBid {
+                    banBidBottomBar
+                } else {
+                    VPrimaryButton(title: "开拍后可出价 · \(lot.startAt.shortText)", style: .dark, disabled: true) {}
+                }
             } else if model.isWinner, let oid = lot.orderId {
-                VPrimaryButton(title: "我已拍中 · 去付款", icon: "trophy.fill") { orderToOpen = oid }
+                VPrimaryButton(title: "我已拍中 · 去付款", icon: "trophy.fill") { wonOrderToOpen = oid }
             } else {
                 VPrimaryButton(title: lot.status == .ended ? "已成交" : "已结束", style: .dark, disabled: true) {}
             }
@@ -408,6 +585,75 @@ struct LotDetailView: View {
         }
     }
 
+    private var isBanBid: Bool { session.isLoggedIn && session.accessFlags.isBanBid }
+
+    private var banBidCaption: String {
+        if let end = session.accessFlags.banBidEndsAt {
+            return "暂不可出价 · 预计 \(end.shortText) 解除"
+        }
+        if let reason = session.accessFlags.banBidPublicReason, !reason.isEmpty {
+            return reason
+        }
+        return "账号已被限制竞拍，仍可围观与收藏"
+    }
+
+    private var banBidHint: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "hand.raised.slash")
+            Text(banBidCaption)
+            Spacer(minLength: 0)
+        }
+        .font(.vCaptionMedium)
+        .foregroundStyle(Color.vTextSecondary)
+        .padding(10)
+        .background(Color.vFill, in: RoundedRectangle(cornerRadius: VRadius.m, style: .continuous))
+    }
+
+    private var banBidBottomBar: some View {
+        VPrimaryButton(title: banBidCaption, style: .dark, disabled: true) {}
+            .opacity(0.55)
+    }
+
+    private func proxyStatusRow(_ proxy: ProxyBidState) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: proxy.isExceeded ? "bolt.slash.fill" : "bolt.fill")
+            Text(
+                proxy.isExceeded
+                    ? ProxyBidCopy.exceededHint
+                    : ProxyBidCopy.activeBanner(maxFen: proxy.displayMaxFen, leading: proxy.leading == true || model.isLeading)
+            )
+            Spacer(minLength: 0)
+        }
+        .font(.vCaptionMedium)
+        .foregroundStyle(proxy.isExceeded ? Color.vPrimary : Color.vGold)
+        .padding(10)
+        .background(
+            (proxy.isExceeded ? Color.vPrimary : Color.vGold).opacity(0.1),
+            in: RoundedRectangle(cornerRadius: VRadius.m, style: .continuous)
+        )
+        .accessibilityLabel(ProxyBidCopy.privacyA11y)
+    }
+
+    private var proxyEntryButton: some View {
+        Button {
+            guard requireLogin() else { return }
+            showProxySheet = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "bolt.fill")
+                Text(model.proxyEntryTitle)
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold))
+            }
+            .font(.vCaptionMedium)
+            .foregroundStyle(Color.vPrimary)
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .background(Color.vPrimarySoft, in: RoundedRectangle(cornerRadius: VRadius.m, style: .continuous))
+        }
+        .disabled(model.proxySaving)
+        .accessibilityHint(ProxyBidCopy.privacyA11y)
+    }
+
     private func requireLogin() -> Bool {
         if session.isLoggedIn { return true }
         router.showLogin = true
@@ -424,7 +670,7 @@ struct LotDetailView: View {
     // MARK: Prompt overlay
 
     @ViewBuilder private var promptOverlay: some View {
-        if let p = model.prompt {
+        if let p = model.prompt, p.id != "extended" {
             ZStack {
                 Color.black.opacity(0.45).ignoresSafeArea().onTapGesture { model.prompt = nil }
                 PromptCard(prompt: p, lot: model.lot) { action in
@@ -432,7 +678,9 @@ struct LotDetailView: View {
                     switch action {
                     case .bid(let amt): Task { await model.placeBid(amt) }
                     case .custom: showBidSheet = true
-                    case .order(let id): orderToOpen = id
+                    case .proxy: showProxySheet = true
+                    case .order(let id): wonOrderToOpen = id
+                    case .unsold: showUnsoldPage = true
                     case .none: break
                     }
                 }
@@ -440,6 +688,36 @@ struct LotDetailView: View {
                 .transition(.scale(scale: 0.9).combined(with: .opacity))
             }
             .animation(.spring(duration: 0.35), value: model.prompt)
+        }
+    }
+
+    /// Full-screen delay toast「已延时 2 分钟」(DES-v1.3-03-03 §9).
+    @ViewBuilder private var extendToastOverlay: some View {
+        if let toast = model.extendToast {
+            ZStack {
+                Color.black.opacity(0.38).ignoresSafeArea().allowsHitTesting(false)
+                VStack(spacing: 10) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 36, weight: .semibold))
+                        .foregroundStyle(Color.vBlue)
+                    Text(AntiSnipeCopy.extendToastTitle)
+                        .font(.vTitle(22))
+                        .foregroundStyle(.white)
+                    Text(AntiSnipeCopy.extendToastSubtitle(endAtText: toast.endAt.shortText))
+                        .font(.vBody)
+                        .foregroundStyle(.white.opacity(0.85))
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 28)
+                .padding(.vertical, 26)
+                .background(Color.vCarbon.opacity(0.92), in: RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
+                .padding(.horizontal, VSpace.xl)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(AntiSnipeCopy.extendToastTitle)，\(AntiSnipeCopy.extendToastSubtitle(endAtText: toast.endAt.shortText))")
+            }
+            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            .animation(.spring(duration: 0.35), value: model.extendToast)
+            .allowsHitTesting(false)
         }
     }
 }
@@ -488,7 +766,7 @@ struct FeedRow: View {
 // MARK: - Prompt card
 
 struct PromptCard: View {
-    enum Action { case bid(Money), custom, order(Int64), none }
+    enum Action { case bid(Money), custom, proxy, order(Int64), unsold, none }
     let prompt: LotDetailModel.Prompt
     let lot: Lot?
     let act: (Action) -> Void
@@ -517,8 +795,15 @@ struct PromptCard: View {
                     VPrimaryButton(title: "再想想", style: .outline) { act(.none) }
                 }
             }
+        case .proxyExceeded:
+            VStack(spacing: 10) {
+                VPrimaryButton(title: ProxyBidCopy.entryRaise, icon: "bolt.fill") { act(.proxy) }
+                VPrimaryButton(title: "知道了", style: .outline) { act(.none) }
+            }
         case .won(let oid):
-            VPrimaryButton(title: "去付款", icon: "creditcard.fill") { act(.order(oid)) }
+            VPrimaryButton(title: AuctionSettlementCopy.goPay, icon: "creditcard.fill") { act(.order(oid)) }
+        case .unsold:
+            VPrimaryButton(title: AuctionSettlementCopy.relistAction, icon: "arrow.triangle.2.circlepath") { act(.unsold) }
         case .extended:
             VPrimaryButton(title: "知道了", style: .dark) { act(.none) }
         default:
@@ -528,26 +813,35 @@ struct PromptCard: View {
 
     private var icon: String {
         switch prompt {
-        case .outbid: return "arrow.up.right"; case .extended: return "clock.arrow.circlepath"; case .won: return "trophy.fill"
+        case .outbid: return "arrow.up.right"
+        case .proxyExceeded: return "bolt.slash.fill"
+        case .extended: return "clock.arrow.circlepath"; case .won: return "trophy.fill"
         case .lost: return "flag.slash"; case .unsold: return "xmark.circle"; case .cancelled: return "xmark"
         }
     }
     private var tint: Color {
-        switch prompt { case .outbid: return .vPrimary; case .extended: return .vBlue; case .won: return .vGold; default: return .vTextSecondary }
+        switch prompt {
+        case .outbid, .proxyExceeded: return .vPrimary
+        case .extended: return .vBlue; case .won: return .vGold
+        default: return .vTextSecondary
+        }
     }
     private var title: String {
         switch prompt {
-        case .outbid: return "您的出价被超越了"; case .extended: return "拍卖已延时 2 分钟"; case .won: return "恭喜您拍中！"
-        case .lost: return "很遗憾，与它擦肩而过"; case .unsold: return "本次流拍"; case .cancelled: return "拍卖已取消"
+        case .outbid: return "您的出价被超越了"
+        case .proxyExceeded: return ProxyBidCopy.exceededHint
+        case .extended: return "拍卖已延时 2 分钟"; case .won: return AuctionSettlementCopy.wonTitle
+        case .lost: return "很遗憾，与它擦肩而过"; case .unsold: return AuctionSettlementCopy.unsoldTitle; case .cancelled: return "拍卖已取消"
         }
     }
     private var message: String {
         switch prompt {
         case .outbid(let m): return "有人出了更高的价格，最低需出 \(m.display) 才能重回领先。"
+        case .proxyExceeded(let m): return "他人出价已超过你的代理最高价。当前最低需 \(m.display)，提高最高价后系统可继续自动跟。"
         case .extended(let d): return "截止前 2 分钟内出现新出价，已按平台规则自动延时 2 分钟。新的结束时间为 \(d.shortText)。"
-        case .won: return "「\(lot?.title ?? "")」已归您所有，请在 24 小时内完成付款。"
+        case .won: return "「\(lot?.title ?? "")」已归您所有。\(AuctionSettlementCopy.wonSubtitle)"
         case .lost: return "拍品已被他人竞得，拍场里还有更多好车等你。"
-        case .unsold: return "未达到成交条件，您可以调整起拍价后重新上拍。"
+        case .unsold: return AuctionSettlementCopy.unsoldSellerHint
         case .cancelled: return "卖家已撤回该拍品。"
         }
     }
@@ -564,7 +858,17 @@ struct BidSheet: View {
     @FocusState private var focused: Bool
 
     private var amount: Money? { Double(yuan).map { Money(($0 * 100).rounded()) } }
-    private var valid: Bool { (amount ?? 0) >= lot.minNextBid }
+    private var onGrid: Bool {
+        guard let amount else { return false }
+        return BidAmountGrid.isAcceptable(
+            amountFen: amount,
+            startPriceFen: lot.startPrice,
+            currentPriceFen: lot.currentPrice,
+            bidCount: lot.bidCount,
+            sellerBidIncrementFen: lot.bidIncrement
+        )
+    }
+    private var valid: Bool { onGrid }
 
     var body: some View {
         VStack(spacing: VSpace.l) {
@@ -583,6 +887,9 @@ struct BidSheet: View {
                     Text("¥").font(.vPrice(24)).foregroundStyle(Color.vPrimary)
                     TextField("", text: $yuan).keyboardType(.decimalPad).font(.vPrice(30)).foregroundStyle(Color.vPrimary)
                         .multilineTextAlignment(.center).focused($focused)
+                        .onChange(of: focused) { _, isFocused in
+                            if !isFocused { snapAmount() }
+                        }
                 }
                 .frame(maxWidth: .infinity).frame(height: 60)
                 .background(Color.vFill, in: RoundedRectangle(cornerRadius: VRadius.l, style: .continuous))
@@ -600,7 +907,7 @@ struct BidSheet: View {
             }
 
             if let a = amount, !valid {
-                Text("出价不得低于 \(lot.minNextBid.display)（您输入 \(a.display)）").font(.vCaption).foregroundStyle(Color.vPrimary)
+                Text("请按加价幅度出价：最低 \(lot.minNextBid.display)（您输入 \(a.display)）").font(.vCaption).foregroundStyle(Color.vPrimary)
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("出价后不可撤回，拍中需在 24 小时内付款。截止前 2 分钟内出价将自动延时 2 分钟。")
@@ -611,7 +918,8 @@ struct BidSheet: View {
             }
 
             VPrimaryButton(title: amount.map { "确认出价 \($0.display)" } ?? "确认出价", loading: model.bidding, disabled: !valid) {
-                guard let a = amount else { return }
+                snapAmount()
+                guard let a = amount, valid else { return }
                 Task { if await model.placeBid(a) { dismiss() } }
             }
         }
@@ -619,6 +927,18 @@ struct BidSheet: View {
         .background(Color.vSurface)
         .sheet(isPresented: $showRules) { LegalDocumentView(document: .auctionRules) }
         .onAppear { yuan = fmt(lot.minNextBid); focused = true }
+    }
+
+    private func snapAmount() {
+        guard let cur = amount else { return }
+        let snapped = BidAmountGrid.snapToGrid(
+            amountFen: cur,
+            startPriceFen: lot.startPrice,
+            currentPriceFen: lot.currentPrice,
+            bidCount: lot.bidCount,
+            sellerBidIncrementFen: lot.bidIncrement
+        )
+        if snapped != cur { yuan = fmt(snapped) }
     }
 
     private func stepper(_ icon: String) -> some View {

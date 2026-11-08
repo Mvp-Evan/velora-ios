@@ -1,114 +1,6 @@
 import SwiftUI
-import Combine
 
-struct MessagesView: View {
-    @EnvironmentObject private var session: SessionStore
-    @EnvironmentObject private var live: AuctionLiveStore
-    @EnvironmentObject private var router: AppRouter
-    @State private var convs: [Conversation] = []
-    @State private var state: LoadState = .idle
-    @State private var markingAll = false
-    @State private var bag = Set<AnyCancellable>()
-
-    private var totalUnread: Int { convs.reduce(0) { $0 + $1.unread } }
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: VSpace.m) {
-                    noticeCard
-                    switch state {
-                    case .idle, .loading: VLoadingView()
-                    case .failed(let m): VErrorView(message: m) { Task { await load() } }
-                    case .loaded:
-                        if convs.isEmpty { VEmptyState(icon: "bubble.left.and.bubble.right", title: "暂无会话", message: "在拍品页点击「咨询」即可联系卖家") }
-                        else {
-                            VCard(padding: 0) {
-                                VStack(spacing: 0) {
-                                    ForEach(convs) { c in
-                                        NavigationLink { ChatView(conversation: c) } label: { ConversationRow(conv: c) }.buttonStyle(.plain)
-                                        if c.id != convs.last?.id { VDivider(inset: 76) }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(VSpace.l)
-            }
-            .background(Color.vBackground)
-            .navigationTitle("消息")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    if totalUnread > 0 || session.unread > 0 {
-                        Button {
-                            Task { await markAllRead() }
-                        } label: {
-                            Text(markingAll ? "处理中…" : "全部已读")
-                                .font(.vCaptionMedium)
-                        }
-                        .disabled(markingAll)
-                    }
-                }
-            }
-            .refreshable { await load() }
-            .task {
-                await load()
-                WebSocketClient.shared.events
-                    .filter { $0.type == "message_new" || $0.type == "message_sent" }
-                    .receive(on: DispatchQueue.main)
-                    .sink { _ in Task { await load(); await session.refreshMe() } }
-                    .store(in: &bag)
-            }
-        }
-        .id(router.messagesStackID)
-    }
-
-    private var noticeCard: some View {
-        NavigationLink { NoticeListView() } label: {
-            VCard {
-                HStack(spacing: 12) {
-                    Image(systemName: "bell.badge.fill").font(.system(size: 18)).foregroundStyle(.white)
-                        .frame(width: 44, height: 44).background(VGradient.brand, in: RoundedRectangle(cornerRadius: VRadius.l, style: .continuous))
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("拍卖通知").font(.vHeadline)
-                        Text(live.noticeFeed.first?.message ?? "出价被超越、拍中、成交等实时提醒").font(.vCaption).foregroundStyle(Color.vTextSecondary).lineLimit(1)
-                    }
-                    Spacer()
-                    if !live.noticeFeed.isEmpty {
-                        Text("\(live.noticeFeed.count)").font(.vMicro).foregroundStyle(.white).padding(.horizontal, 6).padding(.vertical, 2).background(Color.vPrimary, in: Capsule())
-                    }
-                    Image(systemName: "chevron.right").foregroundStyle(Color.vTextTertiary)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func load() async {
-        if convs.isEmpty { state = .loading }
-        do { convs = try await API.conversations(); state = .loaded }
-        catch { state = .failed((error as? APIError)?.message ?? "加载失败") }
-    }
-
-    private func markAllRead() async {
-        markingAll = true
-        defer { markingAll = false }
-        do {
-            try await API.markAllConversationsRead()
-            convs = convs.map { c in
-                var copy = c
-                copy.unread = 0
-                return copy
-            }
-            await session.refreshMe()
-            Haptics.light()
-        } catch {
-            ToastCenter.shared.error(error)
-        }
-    }
-}
-
+/// Conversation row shared by the notification-center chat tab (DES-v1.3-11-01 / D38 subject preview).
 struct ConversationRow: View {
     let conv: Conversation
     var body: some View {
@@ -118,6 +10,22 @@ struct ConversationRow: View {
                 if let lot = conv.lot {
                     RemoteImage(lot.cover).frame(width: 20, height: 20).clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).stroke(Color.vSurface, lineWidth: 2)).offset(x: 4, y: 4)
+                } else if conv.resolvedSubjectType == .order {
+                    Image(systemName: "doc.text")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 20, height: 20)
+                        .background(Color.vPrimary, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).stroke(Color.vSurface, lineWidth: 2))
+                        .offset(x: 4, y: 4)
+                } else if conv.resolvedSubjectType == .listing {
+                    Image(systemName: "tag")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 20, height: 20)
+                        .background(Color.vPrimary, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).stroke(Color.vSurface, lineWidth: 2))
+                        .offset(x: 4, y: 4)
                 }
             }
             VStack(alignment: .leading, spacing: 4) {
@@ -127,7 +35,7 @@ struct ConversationRow: View {
                     Text(conv.lastMessageAt?.relativeText ?? "").font(.vMicro).foregroundStyle(Color.vTextTertiary)
                 }
                 HStack {
-                    Text(conv.lastMessage.isEmpty ? "[\(conv.lot?.title ?? "拍品")]" : conv.lastMessage).font(.vCaption).foregroundStyle(Color.vTextSecondary).lineLimit(1)
+                    Text(previewText).font(.vCaption).foregroundStyle(Color.vTextSecondary).lineLimit(1)
                     Spacer()
                     if conv.unread > 0 {
                         Text("\(conv.unread)").font(.vMicro).foregroundStyle(.white).padding(.horizontal, 6).padding(.vertical, 2).background(Color.vPrimary, in: Capsule())
@@ -138,18 +46,33 @@ struct ConversationRow: View {
         .padding(.horizontal, VSpace.l).padding(.vertical, 12)
         .contentShape(Rectangle())
     }
+
+    private var previewText: String {
+        if !conv.lastMessage.isEmpty { return conv.lastMessage }
+        if let title = conv.lot?.title { return "[\(title)]" }
+        switch conv.resolvedSubjectType {
+        case .order: return ChatCopy.orderCardTitle
+        case .listing: return ChatCopy.listingCardTitle
+        case .lot: return "拍品"
+        }
+    }
 }
 
+/// Live auction notice feed (room WS) — kept as a secondary surface under 竞拍.
 struct NoticeListView: View {
     @EnvironmentObject private var live: AuctionLiveStore
     @EnvironmentObject private var router: AppRouter
     var body: some View {
         ScrollView {
-            if live.noticeFeed.isEmpty { VEmptyState(icon: "bell", title: "暂无通知", message: "本次运行期间收到的实时拍卖通知会显示在这里") }
-            else {
+            if live.noticeFeed.isEmpty {
+                VEmptyState(icon: "bell", title: "暂无通知", message: "本次运行期间收到的实时拍卖通知会显示在这里")
+            } else {
                 LazyVStack(spacing: VSpace.m) {
                     ForEach(live.noticeFeed) { n in
-                        Button { if let o = n.orderId { router.open(order: o) } else if let l = n.lotId { router.open(lot: l) } } label: {
+                        Button {
+                            if let o = n.orderId { router.open(order: o) }
+                            else if let l = n.lotId { router.open(lot: l) }
+                        } label: {
                             VCard {
                                 HStack(alignment: .top, spacing: 12) {
                                     Circle().fill(Color.vPrimary).frame(width: 8, height: 8).padding(.top, 6)

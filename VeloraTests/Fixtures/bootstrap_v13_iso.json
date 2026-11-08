@@ -1,0 +1,28 @@
+{
+  "data": {
+    "nav_schema": {
+      "version": "v13",
+      "tabs": [
+        { "key": "buy", "title": "购买", "icon": "bag" },
+        { "key": "community", "title": "社区", "icon": "person.3" },
+        { "key": "publish", "title": "发布", "icon": "plus" },
+        { "key": "inbox", "title": "消息", "icon": "bubble.left.and.bubble.right" },
+        { "key": "me", "title": "我的", "icon": "person" }
+      ],
+      "me_buyer_entries": [],
+      "me_seller_entries": []
+    },
+    "publish_actions": [],
+    "me": {
+      "status": "active",
+      "real_name_status": "none",
+      "credit_score": 100
+    },
+    "flags": {
+      "nav.v13": true
+    },
+    "server_time": "2026-11-05T12:00:00.000Z"
+  },
+  "error": null,
+  "request_id": "req_bootstrap_v13_iso"
+}

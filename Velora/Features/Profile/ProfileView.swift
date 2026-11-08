@@ -1,220 +1,179 @@
 import SwiftUI
 
+/// 账户与资料：仅管理对外身份与账号安全，不再重复「我的」买卖家入口（DES-v1.3-12-01）。
 struct ProfileView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var router: AppRouter
-    @State private var wallet: Wallet?
     @State private var showEdit = false
-    @State private var showLogoutConfirm = false
-    @State private var pendingPaymentCount = 0
-    @State private var pendingShipCount = 0
-    @State private var pendingReceiveCount = 0
-    /// 卖家待处理：待付款 + 待发货
-    @State private var sellerActionCount = 0
+
+    private var boot: MeBootstrap? { session.bootstrap }
 
     var body: some View {
-        NavigationStack {
-            GeometryReader { geo in
-                let topInset = geo.safeAreaInsets.top
+        Group {
+            if let user = session.user {
                 ScrollView {
                     VStack(spacing: VSpace.l) {
-                        header(topInset: topInset)
-                        orderEntry
-                        lotsEntry
-                        assetsEntry
-                        settingsEntry
+                        identityCard(user)
+                        profileFieldsCard(user)
+                        securityCard
                     }
-                    .padding(.bottom, 100)
-                    .padding(.top, -topInset)
+                    .padding(VSpace.l)
+                    .padding(.bottom, 40)
                 }
-                .background(Color.vBackground)
-                .toolbar(.hidden, for: .navigationBar)
-                .refreshable { await refresh() }
-                .task { await refresh() }
+            } else {
+                VEmptyState(
+                    icon: "person.crop.circle",
+                    title: MeCopy.loginRequired,
+                    message: "登录后可编辑昵称、简介与实名信息",
+                    actionTitle: "去登录"
+                ) {
+                    router.showLogin = true
+                }
             }
         }
-        .id(router.meStackID)
+        .background(Color.vBackground)
+        .navigationTitle(MeCopy.accountProfileTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if session.user != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(MeCopy.accountProfileEdit) { showEdit = true }
+                        .font(.vCaptionMedium)
+                }
+            }
+        }
         .sheet(isPresented: $showEdit) { EditProfileView() }
-        .confirmationDialog("退出登录？", isPresented: $showLogoutConfirm, titleVisibility: .visible) {
-            Button("退出登录", role: .destructive) { session.logout(); router.tab = .home }
+        .task {
+            guard session.isLoggedIn else { return }
+            await session.refreshMe()
         }
     }
 
-    private func header(topInset: CGFloat) -> some View {
-        ZStack(alignment: .topLeading) {
-            VGradient.brand
-                .frame(height: 230 + topInset)
-                .mask(LinearGradient(colors: [.black, .black, .black.opacity(0)], startPoint: .top, endPoint: .bottom))
-            VStack(alignment: .leading, spacing: VSpace.l) {
-                HStack {
-                    Spacer()
-                    Button { showEdit = true } label: {
-                        Image(systemName: "gearshape").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white).frame(width: 34, height: 34).background(.white.opacity(0.2), in: Circle())
-                    }
-                }
-                if let u = session.user {
-                    HStack(spacing: 14) {
-                        VAvatar(url: u.avatar, size: 68).overlay(Circle().stroke(.white, lineWidth: 2))
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(u.nickname).font(.vTitle(22)).foregroundStyle(.white)
-                            HStack(spacing: 6) {
-                                VTagChip(text: "信用 \(u.creditScore)", tint: .white, background: .white.opacity(0.2))
-                                if let loc = u.location, !loc.isEmpty { VTagChip(text: loc, tint: .white, background: .white.opacity(0.2)) }
-                                if let p = u.phoneMasked { Text(p).font(.vMicro).foregroundStyle(.white.opacity(0.8)) }
-                            }
-                            if let bio = u.bio, !bio.isEmpty { Text(bio).font(.vCaption).foregroundStyle(.white.opacity(0.85)).lineLimit(1) }
-                        }
-                        Spacer()
-                    }
-                    HStack(spacing: 0) {
-                        NavigationLink { MyLotsView(kind: .mine) } label: { stat("\(u.lotCount)", "在拍/已拍") }
-                        NavigationLink { OrderListView(role: "buyer") } label: { stat("\(u.wonCount)", "拍到") }
-                        NavigationLink { OrderListView(role: "seller") } label: { stat("\(u.soldCount)", "卖出") }
-                        NavigationLink { WalletView() } label: {
-                            VStack(spacing: 3) {
-                                Text(wallet?.availableBalance.display ?? "--").font(.vMono(17, weight: .heavy))
-                                Text("钱包").font(.vMicro).opacity(0.85)
-                            }
-                            .foregroundStyle(.white).frame(maxWidth: .infinity)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.vertical, 12)
-                    .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: VRadius.l, style: .continuous))
-                } else {
-                    Button { router.showLogin = true } label: {
-                        HStack(spacing: 14) {
-                            Circle().fill(.white.opacity(0.3)).frame(width: 68, height: 68).overlay(Image(systemName: "person.fill").font(.system(size: 28)).foregroundStyle(.white))
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("点击登录").font(.vTitle(22)).foregroundStyle(.white)
-                                Text("登录后参与竞拍、发布拍品").font(.vCaption).foregroundStyle(.white.opacity(0.85))
-                            }
-                            Spacer()
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, VSpace.l)
-            .padding(.top, topInset + VSpace.s)
-        }
-    }
-
-    private func stat(_ v: String, _ k: String) -> some View {
-        VStack(spacing: 3) {
-            Text(v).font(.vMono(17, weight: .heavy))
-            Text(k).font(.vMicro).opacity(0.85)
-        }
-        .foregroundStyle(.white).frame(maxWidth: .infinity)
-    }
-
-    private var orderEntry: some View {
+    private func identityCard(_ user: User) -> some View {
         VCard {
-            VStack(spacing: VSpace.m) {
-                HStack {
-                    Text("我拍到的").font(.vHeadline)
-                    Spacer()
-                    NavigationLink { OrderListView(role: "buyer") } label: { HStack(spacing: 2) { Text("全部订单"); Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)) }.font(.vCaption).foregroundStyle(Color.vTextSecondary) }
-                }
-                HStack {
-                    entry("creditcard", "待付款", .vPrimary, badge: pendingPaymentCount) { OrderListView(role: "buyer", initialStatus: "pending_payment") }
-                    entry("shippingbox", "待发货", .vBlue, badge: pendingShipCount) { OrderListView(role: "buyer", initialStatus: "paid") }
-                    entry("truck.box", "待收货", .vGold, badge: pendingReceiveCount) { OrderListView(role: "buyer", initialStatus: "shipped") }
-                    entry("checkmark.seal", "已完成", .vGreen) { OrderListView(role: "buyer", initialStatus: "completed") }
-                }
-            }
-        }
-        .padding(.horizontal, VSpace.l)
-    }
-
-    private var lotsEntry: some View {
-        VCard {
-            VStack(spacing: VSpace.m) {
-                HStack { Text("我的拍卖").font(.vHeadline); Spacer() }
-                HStack {
-                    entry("flag.checkered", "我的拍品", .vCarbon) { MyLotsView(kind: .mine) }
-                    entry("hand.raised", "我的出价", .vPrimary) { MyLotsView(kind: .bids) }
-                    entry("heart", "我的关注", .vPrimary) { MyLotsView(kind: .follows) }
-                    entry("tag", "我卖出的", .vGreen, badge: sellerActionCount) { OrderListView(role: "seller") }
-                }
-            }
-        }
-        .padding(.horizontal, VSpace.l)
-    }
-
-    private func entry<D: View>(_ icon: String, _ title: String, _ tint: Color, badge: Int = 0, @ViewBuilder _ dest: @escaping () -> D) -> some View {
-        NavigationLink { dest() } label: {
-            VStack(spacing: 7) {
-                ZStack(alignment: .topTrailing) {
-                    Image(systemName: icon).font(.system(size: 20, weight: .medium)).foregroundStyle(tint).frame(width: 28, height: 24)
-                    if badge > 0 {
-                        Text(badge > 99 ? "99+" : "\(badge)")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 4).padding(.vertical, 1)
-                            .background(Color.vPrimary, in: Capsule())
-                            .offset(x: 10, y: -6)
+            HStack(spacing: 14) {
+                VAvatar(url: user.avatar, size: 72)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(user.nickname).font(.vTitle(20)).foregroundStyle(Color.vText)
+                    HStack(spacing: 6) {
+                        let credit = boot?.creditScore ?? user.creditScore
+                        NavigationLink { MeCreditView() } label: {
+                            Text("信用 \(credit)")
+                                .font(.vCaptionMedium)
+                                .foregroundStyle(Color.vPrimary)
+                        }
+                        .buttonStyle(.plain)
+                        if let type = boot?.seller?.sellerType {
+                            Text(sellerTypeLabel(type))
+                                .font(.vCaption)
+                                .foregroundStyle(Color.vTextSecondary)
+                        }
                     }
+                    Text(MeCopy.accountProfileHint)
+                        .font(.vCaption)
+                        .foregroundStyle(Color.vTextTertiary)
                 }
-                Text(title).font(.vMicro).foregroundStyle(Color.vTextSecondary)
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.plain)
     }
 
-    private var assetsEntry: some View {
+    private func profileFieldsCard(_ user: User) -> some View {
         VCard(padding: 0) {
             VStack(spacing: 0) {
-                NavigationLink { WalletView() } label: { VNavRow(icon: "wallet.pass", iconTint: .vGold, title: "我的钱包", value: wallet.map { "在途 \($0.pendingBalance.display)" }) }
+                Button { showEdit = true } label: {
+                    VNavRow(
+                        icon: "person.text.rectangle",
+                        iconTint: .vBlue,
+                        title: "昵称",
+                        value: user.nickname
+                    )
+                }
                 VDivider(inset: 58)
-                NavigationLink { TaxCenterView() } label: { VNavRow(icon: "doc.text.magnifyingglass", iconTint: .vBlue, title: "实名与税务", value: "报税预留") }
+                Button { showEdit = true } label: {
+                    VNavRow(
+                        icon: "mappin.and.ellipse",
+                        iconTint: .vGreen,
+                        title: "所在地",
+                        value: {
+                            let loc = user.location?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                            return loc.isEmpty ? MeCopy.accountLocationEmpty : loc
+                        }()
+                    )
+                }
                 VDivider(inset: 58)
-                NavigationLink { AddressListView() } label: { VNavRow(icon: "mappin.and.ellipse", iconTint: .vGreen, title: "收货地址") }
-            }
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, VSpace.l)
-    }
-
-    private var settingsEntry: some View {
-        VCard(padding: 0) {
-            VStack(spacing: 0) {
-                NavigationLink { FeeRulesView() } label: { VNavRow(icon: "percent", iconTint: .vPrimary, title: "平台服务费说明") }
-                VDivider(inset: 58)
-                NavigationLink { LegalDocumentView(document: .appGuide, showDone: false) } label: { VNavRow(icon: "book", iconTint: .vBlue, title: "使用说明") }
-                VDivider(inset: 58)
-                NavigationLink { LegalDocumentView(document: .auctionRules, showDone: false) } label: { VNavRow(icon: "flag.checkered", iconTint: .vPrimary, title: "拍卖规则") }
-                VDivider(inset: 58)
-                NavigationLink { LegalDocumentView(document: .disclaimer, showDone: false) } label: { VNavRow(icon: "exclamationmark.shield", iconTint: .vGold, title: "免责声明") }
-                VDivider(inset: 58)
-                NavigationLink { AboutView() } label: { VNavRow(icon: "info.circle", iconTint: .vTextSecondary, title: "关于 Velora", value: "v0.1.0") }
-                if session.isLoggedIn {
+                Button { showEdit = true } label: {
+                    VNavRow(
+                        icon: "text.alignleft",
+                        iconTint: .vTextSecondary,
+                        title: "简介",
+                        value: {
+                            let bio = user.bio?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                            return bio.isEmpty ? MeCopy.accountBioEmpty : bio
+                        }()
+                    )
+                }
+                if let phone = user.phoneMasked, !phone.isEmpty {
                     VDivider(inset: 58)
-                    Button { showLogoutConfirm = true } label: { VNavRow(icon: "rectangle.portrait.and.arrow.right", iconTint: .vTextSecondary, title: "退出登录") }
+                    VNavRow(
+                        icon: "phone",
+                        iconTint: .vBlue,
+                        title: MeCopy.accountPhoneTitle,
+                        value: phone
+                    )
                 }
             }
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, VSpace.l)
     }
 
-    private func refresh() async {
-        guard session.isLoggedIn else {
-            pendingPaymentCount = 0; pendingShipCount = 0; pendingReceiveCount = 0
-            sellerActionCount = 0
-            return
+    private var securityCard: some View {
+        VCard(padding: 0) {
+            VStack(spacing: 0) {
+                NavigationLink { RealNameView() } label: {
+                    VNavRow(
+                        icon: "checkmark.shield",
+                        iconTint: .vGreen,
+                        title: MeCopy.realNameTitle,
+                        value: realNameLabel
+                    )
+                }
+                VDivider(inset: 58)
+                NavigationLink { SessionsView() } label: {
+                    VNavRow(
+                        icon: "laptopcomputer.and.iphone",
+                        iconTint: .vBlue,
+                        title: MeCopy.accountSessionsTitle
+                    )
+                }
+                VDivider(inset: 58)
+                NavigationLink { MeSettingsView() } label: {
+                    VNavRow(
+                        icon: "gearshape",
+                        iconTint: .vTextSecondary,
+                        title: MeCopy.settingsTitle,
+                        value: "地址 · 推送 · 协议"
+                    )
+                }
+            }
         }
-        await session.refreshMe()
-        wallet = try? await API.wallet()
-        async let pay = API.myOrders(role: "buyer", status: "pending_payment", page: 1)
-        async let ship = API.myOrders(role: "buyer", status: "paid", page: 1)
-        async let recv = API.myOrders(role: "buyer", status: "shipped", page: 1)
-        async let sellerPay = API.myOrders(role: "seller", status: "pending_payment", page: 1)
-        async let sellerShip = API.myOrders(role: "seller", status: "paid", page: 1)
-        pendingPaymentCount = (try? await pay)?.total ?? 0
-        pendingShipCount = (try? await ship)?.total ?? 0
-        pendingReceiveCount = (try? await recv)?.total ?? 0
-        sellerActionCount = ((try? await sellerPay)?.total ?? 0) + ((try? await sellerShip)?.total ?? 0)
+        .buttonStyle(.plain)
+    }
+
+    private var realNameLabel: String {
+        let raw = boot?.me?.realNameStatus ?? session.user?.realNameStatus ?? "none"
+        return RealNameStatusValue(rawValue: raw)?.displayLabel ?? MeCopy.realNameUnset
+    }
+
+    private func sellerTypeLabel(_ type: String) -> String {
+        switch type {
+        case "personal": return "个人卖家"
+        case "proxy_agent":
+            if let label = boot?.seller?.proxyBuyerBadgeLabel { return label }
+            return ProxyAgentCopy.goldBadge
+        case "brand": return "品牌官方"
+        default: return type
+        }
     }
 }
 
@@ -230,19 +189,38 @@ struct MyLotsView: View {
     var body: some View {
         VStack(spacing: 0) {
             if kind == .mine {
-                VPillSegments(items: [("all", "全部"), ("live", "竞拍中"), ("upcoming", "预展中"), ("ended", "已结束")], selection: $status).padding(.vertical, VSpace.s)
+                VPillSegments(
+                    items: [
+                        ("all", "全部"),
+                        ("live", "竞拍中"),
+                        ("upcoming", "预展中"),
+                        ("ended", "已成交"),
+                        ("unsold", "流拍"),
+                    ],
+                    selection: $status
+                )
+                .padding(.vertical, VSpace.s)
             }
             ScrollView {
                 switch state {
                 case .idle, .loading: VLoadingView()
                 case .failed(let m): VErrorView(message: m) { Task { await load() } }
                 case .loaded:
-                    if items.isEmpty { VEmptyState(icon: emptyIcon, title: emptyTitle) }
-                    else {
+                    if items.isEmpty {
+                        if kind == .mine && status == "unsold" {
+                            UnsoldLotsEmptyView()
+                        } else {
+                            VEmptyState(icon: emptyIcon, title: emptyTitle)
+                        }
+                    } else {
                         LazyVStack(spacing: VSpace.m) {
                             ForEach(items) { lot in
                                 NavigationLink {
-                                    LotDetailView(lotId: lot.id, preload: lot)
+                                    if kind == .mine && lot.status == .unsold {
+                                        AuctionUnsoldView(lotId: lot.id, preload: lot)
+                                    } else {
+                                        LotDetailView(lotId: lot.id, preload: lot)
+                                    }
                                 } label: {
                                     LotRow(lot: lot, trailing: kind == .bids && lot.myBid.hasBid ? "我出 \(lot.myBid.maxAmount.display)" : nil)
                                 }
@@ -270,12 +248,161 @@ struct MyLotsView: View {
         if items.isEmpty { state = .loading }
         do {
             switch kind {
-            case .mine: items = try await API.myLots(status: status).items
+            case .mine:
+                var lots = try await API.myLots(status: status).items
+                // Defend against server defaulting unknown status (e.g. unsold→live+scheduled).
+                switch status {
+                case "live": lots = lots.filter { $0.status == .live }
+                case "upcoming": lots = lots.filter { $0.status == .scheduled }
+                case "ended": lots = lots.filter { $0.status == .ended }
+                case "unsold": lots = lots.filter { $0.status == .unsold }
+                default: break
+                }
+                items = lots
             case .bids: items = try await API.myBids().items
             case .follows: items = try await API.myFollows().items
             }
             state = .loaded
         } catch { state = .failed((error as? APIError)?.message ?? "加载失败") }
+    }
+}
+
+// MARK: - Seller fixed / 直购 listings (我的在售)
+
+struct MyListingsView: View {
+    @EnvironmentObject private var session: SessionStore
+    @State private var items: [SearchListingCard] = []
+    @State private var state: LoadState = .idle
+    @State private var status = "on_sale"
+    @State private var actingId: Int64?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VPillSegments(
+                items: [
+                    ("on_sale", "在售"),
+                    ("off_shelf", "已下架"),
+                    ("sold", "已售出"),
+                ],
+                selection: $status
+            )
+            .padding(.vertical, VSpace.s)
+
+            ScrollView {
+                switch state {
+                case .idle, .loading:
+                    VLoadingView()
+                case .failed(let m):
+                    VErrorView(message: m) { Task { await load() } }
+                case .loaded:
+                    if items.isEmpty {
+                        VEmptyState(icon: "tag", title: emptyTitle, message: "发布直购后会出现在这里")
+                    } else {
+                        LazyVStack(spacing: VSpace.m) {
+                            ForEach(items) { card in
+                                HStack(spacing: 8) {
+                                    NavigationLink {
+                                        ListingDetailView(listingId: card.listingId, preloadTradeType: "fixed")
+                                    } label: {
+                                        sellerListingRow(card)
+                                    }
+                                    .buttonStyle(.plain)
+                                    if status == "on_sale" {
+                                        Button("下架") {
+                                            Task { await offShelf(card.listingId) }
+                                        }
+                                        .font(.vCaptionMedium)
+                                        .foregroundStyle(Color.vPrimary)
+                                        .disabled(actingId == card.listingId)
+                                        .padding(.trailing, 4)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(VSpace.l)
+                    }
+                }
+            }
+            .refreshable { await load() }
+        }
+        .background(Color.vBackground)
+        .navigationTitle("我的在售")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+        .onChange(of: status) { _, _ in Task { await load() } }
+    }
+
+    private var emptyTitle: String {
+        switch status {
+        case "off_shelf": return "没有已下架的直购"
+        case "sold": return "还没有售出的直购"
+        default: return "还没有在售直购"
+        }
+    }
+
+    private func sellerListingRow(_ card: SearchListingCard) -> some View {
+        HStack(spacing: 12) {
+            RemoteImage(card.cover)
+                .frame(width: 72, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.m, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(card.title).font(.vBodyMedium).foregroundStyle(Color.vText).lineLimit(2)
+                HStack(spacing: 6) {
+                    VPriceText(amount: card.displayPrice, size: 14)
+                    if card.negotiable == true {
+                        Text("可议价").font(.vMicro).foregroundStyle(Color.vGold)
+                    }
+                }
+                Text(statusLabel(card.status)).font(.vCaption).foregroundStyle(Color.vTextTertiary)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.vTextTertiary)
+        }
+        .padding(12)
+        .background(Color.vSurface, in: RoundedRectangle(cornerRadius: VRadius.l, style: .continuous))
+    }
+
+    private func statusLabel(_ raw: String?) -> String {
+        switch raw {
+        case "on_sale": return "在售"
+        case "off_shelf": return "已下架"
+        case "sold": return "已售出"
+        default: return raw ?? ""
+        }
+    }
+
+    private func load() async {
+        guard let sellerId = session.user?.id else {
+            state = .failed("请先登录")
+            return
+        }
+        if items.isEmpty { state = .loading }
+        do {
+            var q = ListingSearchQuery()
+            q.tradeType = "fixed"
+            q.sellerId = sellerId
+            q.status = status
+            q.pageSize = 50
+            let page = try await API.listings(q)
+            items = page.items
+            state = .loaded
+        } catch {
+            state = .failed((error as? APIError)?.message ?? "加载失败")
+        }
+    }
+
+    private func offShelf(_ id: Int64) async {
+        actingId = id
+        defer { actingId = nil }
+        do {
+            try await API.offShelfListing(id)
+            ToastCenter.shared.show("已下架", .success)
+            await load()
+        } catch {
+            ToastCenter.shared.error(error)
+        }
     }
 }
 
@@ -307,7 +434,7 @@ struct EditProfileView: View {
                 .padding(VSpace.l)
             }
             .background(Color.vBackground)
-            .navigationTitle("编辑资料")
+            .navigationTitle(MeCopy.accountProfileEdit)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
@@ -383,7 +510,7 @@ struct AboutView: View {
                     Text("V").font(.system(size: 56, weight: .black, design: .rounded)).foregroundStyle(.white)
                 }
                 .padding(.top, 40)
-                Text("Velora").font(.vLargeTitle)
+                Text(AppConfig.brandDisplayName).font(.vLargeTitle)
                 Text("赛车模型实时拍卖社区").font(.vBody).foregroundStyle(Color.vTextSecondary)
                 Text("版本 0.1.0 · 服务端 \(AppConfig.baseURL.absoluteString)").font(.vMicro).foregroundStyle(Color.vTextTertiary)
 
@@ -394,6 +521,8 @@ struct AboutView: View {
                         NavigationLink { LegalDocumentView(document: .auctionRules, showDone: false) } label: { VNavRow(icon: "flag.checkered", iconTint: .vPrimary, title: "拍卖规则") }
                         VDivider(inset: 58)
                         NavigationLink { LegalDocumentView(document: .disclaimer, showDone: false) } label: { VNavRow(icon: "exclamationmark.shield", iconTint: .vGold, title: "免责声明") }
+                        VDivider(inset: 58)
+                        NavigationLink { FeeRulesView() } label: { VNavRow(icon: "percent", iconTint: .vPrimary, title: "平台服务费说明") }
                     }
                 }
                 .buttonStyle(.plain)

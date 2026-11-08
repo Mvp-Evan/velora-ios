@@ -132,7 +132,15 @@ struct AddressEditView: View {
             do {
                 if address.id == 0 { _ = try await API.createAddress(address) } else { _ = try await API.updateAddress(address) }
                 ToastCenter.shared.show("已保存", .success); done(); dismiss()
-            } catch { ToastCenter.shared.error(error) }
+            } catch {
+                if let code = (error as? APIError)?.code, code == OrderCenterErrorCode.addressLimit.rawValue {
+                    ToastCenter.shared.show(OrderCenterErrorCode.addressLimit.fallbackMessage)
+                } else if let code = (error as? APIError)?.code, code == OrderCenterErrorCode.addressInUse.rawValue {
+                    ToastCenter.shared.show(OrderCenterErrorCode.addressInUse.fallbackMessage)
+                } else {
+                    ToastCenter.shared.error(error)
+                }
+            }
         }
     }
 }

@@ -98,25 +98,30 @@ struct VCountdown: View {
     var body: some View {
         let remain = endAt.timeIntervalSince(ticker.now)
         let urgent = status == .live && remain > 0 && remain < 300
-        switch style {
-        case .compact:
-            HStack(spacing: 3) {
-                Image(systemName: status == .scheduled ? "clock" : "timer").font(.system(size: 9, weight: .bold))
-                Text(label(remain)).font(.vMono(11))
-            }
-            .foregroundStyle(urgent ? Color.vPrimary : Color.vTextSecondary)
-        case .inline:
-            Text(label(remain)).font(.vMono(13)).foregroundStyle(urgent ? Color.vPrimary : Color.vText)
-        case .large:
-            VStack(alignment: .leading, spacing: 4) {
-                Text(status == .scheduled ? "距开拍" : (remain > 0 ? "距结束" : "已结束"))
-                    .font(.vCaption).foregroundStyle(.white.opacity(0.75))
-                Text(remain > 0 ? endAt.countdownText(to: ticker.now) : "00:00:00")
-                    .font(.vMono(22, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .contentTransition(.numericText())
+        Group {
+            switch style {
+            case .compact:
+                HStack(spacing: 3) {
+                    Image(systemName: status == .scheduled ? "clock" : "timer").font(.system(size: 9, weight: .bold))
+                    Text(label(remain)).font(.vMono(11))
+                }
+                .foregroundStyle(urgent ? Color.vPrimary : Color.vTextSecondary)
+            case .inline:
+                Text(label(remain)).font(.vMono(13)).foregroundStyle(urgent ? Color.vPrimary : Color.vText)
+            case .large:
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(status == .scheduled ? "距开拍" : (remain > 0 ? "距结束" : "已结束"))
+                        .font(.vCaption).foregroundStyle(.white.opacity(0.75))
+                    Text(remain > 0 ? endAt.countdownText(to: ticker.now) : "00:00:00")
+                        .font(.vMono(22, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .contentTransition(.numericText())
+                }
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(status == .scheduled ? "距开拍" : "距结束")
+        .accessibilityValue(AntiSnipeCopy.remainingMinutesAccessibility(remain: remain))
     }
 
     private func label(_ remain: TimeInterval) -> String {

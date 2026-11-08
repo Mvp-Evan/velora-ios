@@ -136,7 +136,7 @@ struct TaxCenterView: View {
     private var notice: some View {
         VStack(alignment: .leading, spacing: 6) {
             Label("关于税务", systemImage: "info.circle").font(.vCaptionMedium).foregroundStyle(Color.vTextSecondary)
-            Text("依据《中华人民共和国个人所得税法》及电商平台涉税信息报送规定，平台会记录您在 Velora 的销售收入，并按季度生成申报汇总；自然人出售自用闲置物品一般免征，经营性所得需依法申报。具体以税务机关要求为准。")
+            Text("依据《中华人民共和国个人所得税法》及电商平台涉税信息报送规定，平台会记录您在毂毂的销售收入，并按季度生成申报汇总；自然人出售自用闲置物品一般免征，经营性所得需依法申报。具体以税务机关要求为准。")
                 .font(.vMicro).foregroundStyle(Color.vTextTertiary).lineSpacing(3)
         }
         .padding(.horizontal, VSpace.xl)

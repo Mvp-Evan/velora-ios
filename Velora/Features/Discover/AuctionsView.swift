@@ -17,13 +17,24 @@ struct AuctionsView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                ListRealtimeBanner(
+                    endTimeText: current.realtime.endTimeChanges.showsBanner
+                        ? current.realtime.endTimeChanges.bannerText : nil,
+                    offline: current.realtime.realtimePaused && !current.items.isEmpty && segment != .ended
+                ) {
+                    Task { await current.refreshFromBanner() }
+                }
                 VSegmentedTabs(items: [(Segment.live, "进行中"), (.upcoming, "即将开始"), (.ended, "已结束")], selection: $segment,
                                counts: [.live: live.total])
                     .padding(.vertical, VSpace.s)
                 if segment == .live {
                     VPillSegments(items: [("ending", "即将结束"), ("hot", "最热"), ("newest", "最新"), ("price_asc", "价格↑"), ("price_desc", "价格↓")], selection: $sort)
                         .padding(.bottom, VSpace.s)
-                        .onChange(of: sort) { _, v in live.query.sort = v; Task { await live.load() } }
+                        .onChange(of: sort) { _, v in
+                            live.realtime.clearForFilterChange()
+                            live.query.sort = v
+                            Task { await live.load() }
+                        }
                 }
                 TabView(selection: $segment) {
                     list(live).tag(Segment.live)
@@ -36,6 +47,12 @@ struct AuctionsView: View {
             .navigationTitle("拍场")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink { AuctionSessionCalendarView() } label: {
+                        Image(systemName: "calendar")
+                    }
+                    .accessibilityLabel("专场日历")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink { SearchView() } label: { Image(systemName: "magnifyingglass") }
                 }
@@ -43,8 +60,14 @@ struct AuctionsView: View {
             .navigationDestination(for: Lot.self) { LotDetailView(lotId: $0.id, preload: $0) }
         }
         .task {
+            live.activateRealtime()
+            upcoming.activateRealtime()
             await filters.load()
             if live.items.isEmpty { await live.load() }
+        }
+        .onDisappear {
+            live.deactivateRealtime()
+            upcoming.deactivateRealtime()
         }
         .onChange(of: segment) { _, s in
             Task { if current.items.isEmpty { await current.load() } }
@@ -62,9 +85,16 @@ struct AuctionsView: View {
                 } else {
                     LazyVStack(spacing: VSpace.m) {
                         ForEach(model.items) { lot in
-                            NavigationLink(value: lot) { AuctionRow(lot: lot) }
-                                .buttonStyle(.plain)
-                                .onAppear { if model.shouldLoadMore(lot) { Task { await model.loadMore() } } }
+                            NavigationLink(value: lot) {
+                                AuctionRow(lot: lot, delayed: model.realtime.live(for: lot.id)?.delayed == true)
+                            }
+                            .buttonStyle(.plain)
+                            .reportLotCardVisibility(
+                                lotId: segment == .ended ? nil : lot.id,
+                                onRatio: { id, ratio in model.realtime.updateVisibility(lotId: id, ratio: ratio) },
+                                onDisappear: { id in model.realtime.cardDidDisappear(lotId: id) }
+                            )
+                            .onAppear { if model.shouldLoadMore(lot) { Task { await model.loadMore() } } }
                         }
                         if model.loadingMore { ProgressView().padding() }
                     }
@@ -72,13 +102,17 @@ struct AuctionsView: View {
                 }
             }
         }
-        .refreshable { await model.load() }
+        .refreshable {
+            model.realtime.acknowledgeBannerAndRefresh()
+            await model.load()
+        }
     }
 }
 
 /// 拍场列表大图行
 struct AuctionRow: View {
     let lot: Lot
+    var delayed: Bool = false
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomLeading) {
@@ -86,7 +120,15 @@ struct AuctionRow: View {
                 VGradient.imageScrim.frame(height: 90).frame(maxHeight: .infinity, alignment: .bottom)
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
-                        VStatusBadge(status: lot.status)
+                        HStack(spacing: 6) {
+                            VStatusBadge(status: lot.status)
+                            if delayed {
+                                Text(LotCardHeatCopy.delayedBadge)
+                                    .font(.vMicro).foregroundStyle(.white)
+                                    .padding(.horizontal, 7).padding(.vertical, 3)
+                                    .background(Color.vGold.opacity(0.95), in: Capsule())
+                            }
+                        }
                         Text(lot.title).font(.vHeadline).foregroundStyle(.white).lineLimit(1)
                     }
                     Spacer()

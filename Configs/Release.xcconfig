@@ -1,0 +1,7 @@
+// Release — production HTTPS/WSS only (no ATS HTTP exceptions for remote hosts)
+
+API_BASE_URL = https:/$()/api.example.com
+WS_URL = wss:/$()/api.example.com
+MERCHANT_WEB_BASE_URL = https:/$()/merchant.example.com
+
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited)

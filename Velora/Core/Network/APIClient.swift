@@ -12,12 +12,18 @@ struct APIError: LocalizedError, Identifiable {
     static func network(_ e: Error) -> APIError { APIError(code: "network", message: "网络连接失败，请检查网络", status: 0) }
     static let decoding = APIError(code: "decoding", message: "数据解析失败", status: 0)
     var isUnauthorized: Bool { status == 401 }
+    /// COM-01 optimistic follow rollback (DES-v1.3-12-03).
+    var isForbidden: Bool { status == 403 }
+    var isConflict: Bool { status == 409 }
 }
 
-/// 请求体可以是 Encodable 或 multipart
+/// 请求体可以是 Encodable 或 multipart（fields + files，取证照片等）
 enum RequestBody {
     case json(Encodable)
-    case multipart(files: [(field: String, filename: String, mime: String, data: Data)])
+    case multipart(
+        files: [(field: String, filename: String, mime: String, data: Data)],
+        fields: [String: String]
+    )
     case none
 }
 
@@ -39,14 +45,28 @@ actor APIClient {
         self.refreshHandler = refreshHandler
     }
 
-    /// 解析服务端 RFC3339 时间（兼容有/无小数秒）
+    /// 解析服务端 RFC3339 时间（兼容有/无小数秒；Go 可能输出 9 位纳秒）
     nonisolated static func parseDate(_ s: String) -> Date? {
+        let candidates: [String] = {
+            // Trim fractional seconds to ≤3 digits for Foundation ISO8601 parser.
+            guard let dot = s.firstIndex(of: ".") else { return [s] }
+            let afterDot = s.index(after: dot)
+            var fracEnd = afterDot
+            while fracEnd < s.endIndex, s[fracEnd].isNumber { fracEnd = s.index(after: fracEnd) }
+            let frac = String(s[afterDot..<fracEnd])
+            if frac.count <= 3 { return [s] }
+            let trimmed = String(s[..<afterDot]) + String(frac.prefix(3)) + String(s[fracEnd...])
+            return [s, trimmed]
+        }()
         let withFrac = ISO8601DateFormatter()
         withFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = withFrac.date(from: s) { return d }
         let plain = ISO8601DateFormatter()
         plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: s)
+        for cand in candidates {
+            if let d = withFrac.date(from: cand) { return d }
+            if let d = plain.date(from: cand) { return d }
+        }
+        return nil
     }
 
     static let decoder: JSONDecoder = {
@@ -69,16 +89,20 @@ actor APIClient {
 
     // MARK: - Public
 
+    /// UUID for write-API `Idempotency-Key` (DES-v1.3-00-00).
+    nonisolated func idempotencyKey() -> String { UUID().uuidString }
+
     func request<T: Decodable>(_ method: HTTPMethod, _ path: String, query: [String: String?] = [:],
-                               body: RequestBody = .none, auth: Bool = true, retry: Bool = true) async throws -> T {
-        let req = try buildRequest(method, path, query: query, body: body, auth: auth)
+                               body: RequestBody = .none, auth: Bool = true, retry: Bool = true,
+                               idempotencyKey: String? = nil) async throws -> T {
+        let req = try buildRequest(method, path, query: query, body: body, auth: auth, idempotencyKey: idempotencyKey)
         let (data, resp): (Data, URLResponse)
         do { (data, resp) = try await session.data(for: req) } catch { throw APIError.network(error) }
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
 
         if status == 401, auth, retry, let refresh = refreshHandler {
             if await runRefresh(refresh) {
-                return try await request(method, path, query: query, body: body, auth: auth, retry: false)
+                return try await request(method, path, query: query, body: body, auth: auth, retry: false, idempotencyKey: idempotencyKey)
             }
         }
         if (200..<300).contains(status) {
@@ -104,12 +128,13 @@ actor APIClient {
     }
 
     /// 返回可空 data 的接口（如 GET /me/tax-profile）
-    func requestOptional<T: Decodable>(_ method: HTTPMethod, _ path: String, query: [String: String?] = [:], body: RequestBody = .none) async throws -> T? {
-        let req = try buildRequest(method, path, query: query, body: body, auth: true)
+    func requestOptional<T: Decodable>(_ method: HTTPMethod, _ path: String, query: [String: String?] = [:],
+                                       body: RequestBody = .none, idempotencyKey: String? = nil) async throws -> T? {
+        let req = try buildRequest(method, path, query: query, body: body, auth: true, idempotencyKey: idempotencyKey)
         let (data, resp) = try await session.data(for: req)
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
         if status == 401, let refresh = refreshHandler, await runRefresh(refresh) {
-            return try await requestOptional(method, path, query: query, body: body)
+            return try await requestOptional(method, path, query: query, body: body, idempotencyKey: idempotencyKey)
         }
         guard (200..<300).contains(status) else {
             if let env = try? Self.decoder.decode(Envelope<Empty>.self, from: data), let e = env.error {
@@ -138,7 +163,8 @@ actor APIClient {
         return ok
     }
 
-    private func buildRequest(_ method: HTTPMethod, _ path: String, query: [String: String?], body: RequestBody, auth: Bool) throws -> URLRequest {
+    private func buildRequest(_ method: HTTPMethod, _ path: String, query: [String: String?], body: RequestBody, auth: Bool,
+                              idempotencyKey explicitKey: String? = nil) throws -> URLRequest {
         var comps = URLComponents(url: AppConfig.apiURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         let items = query.compactMap { k, v in v.map { URLQueryItem(name: k, value: $0) } }
         if !items.isEmpty { comps.queryItems = items }
@@ -147,15 +173,28 @@ actor APIClient {
         req.timeoutInterval = 20
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         if auth, let tok = tokenProvider?() { req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization") }
+        switch method {
+        case .POST, .PUT, .PATCH, .DELETE:
+            let key = explicitKey ?? idempotencyKey()
+            req.setValue(key, forHTTPHeaderField: "Idempotency-Key")
+        case .GET:
+            break
+        }
         switch body {
         case .none: break
         case .json(let enc):
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = try Self.encoder.encode(AnyEncodable(enc))
-        case .multipart(let files):
+        case .multipart(let files, let fields):
             let boundary = "velora-\(UUID().uuidString)"
             req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
             var d = Data()
+            for (name, value) in fields.sorted(by: { $0.key < $1.key }) {
+                d.append("--\(boundary)\r\n".data(using: .utf8)!)
+                d.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+                d.append(value.data(using: .utf8)!)
+                d.append("\r\n".data(using: .utf8)!)
+            }
             for f in files {
                 d.append("--\(boundary)\r\n".data(using: .utf8)!)
                 d.append("Content-Disposition: form-data; name=\"\(f.field)\"; filename=\"\(f.filename)\"\r\n".data(using: .utf8)!)
@@ -194,6 +233,8 @@ struct JSONDict: Encodable, ExpressibleByDictionaryLiteral {
             case let d as Double: try c.encode(d, forKey: key)
             case let b as Bool: try c.encode(b, forKey: key)
             case let a as [String]: try c.encode(a, forKey: key)
+            case let a as [Int64]: try c.encode(a, forKey: key)
+            case let a as [Int]: try c.encode(a, forKey: key)
             case let dt as Date: try c.encode(dt, forKey: key)
             default: try c.encode(String(describing: v), forKey: key)
             }
