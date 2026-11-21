@@ -292,13 +292,21 @@ enum MeSellerType: String, Codable, Sendable, CaseIterable, Equatable {
         switch s {
         case "individual", "person", "c2c":
             return .personal
-        case "proxy", "agent", "代拍":
+        case "proxy", "agent", "代拍", "gold_proxy", "proxy_gold":
             return .proxyAgent
         case "official", "merchant_brand", "品牌":
             return .brand
         default:
             return nil
         }
+    }
+
+    static func displayLabel(raw: String?, badgeLabel: String? = nil) -> String {
+        if let badgeLabel, !badgeLabel.isEmpty { return badgeLabel }
+        if let t = normalize(raw) { return t.displayLabel }
+        let s = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.isEmpty { return "卖家" }
+        return s
     }
 
     var displayLabel: String {
@@ -1268,6 +1276,25 @@ enum MeLogic {
             time = "—"
         }
         return "\(MeCopy.protocolSignedPrefix)\(time)\(MeCopy.protocolSignedMid)\(version)"
+    }
+
+    /// Collapse bootstrap duplicates (e.g. `browse_history` + `history`).
+    static func dedupBuyerEntryCodes(_ rawCodes: [String]) -> [String] {
+        var seen = Set<MeEntryCode>()
+        var out: [String] = []
+        for raw in rawCodes {
+            guard let code = MeEntryCode.normalize(raw) else { continue }
+            if seen.contains(code) { continue }
+            seen.insert(code)
+            out.append(code.rawValue)
+        }
+        return out
+    }
+
+    /// Always show「我收藏的」when routing fav → follows API (M065 title mismatch).
+    static func favoritesGridTitle(serverTitle: String?) -> String {
+        _ = serverTitle
+        return MeEntryCode.fav.defaultTitle
     }
 
     static func unknownEntryMessage(code: String) -> String {

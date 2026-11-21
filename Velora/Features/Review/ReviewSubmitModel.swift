@@ -25,7 +25,7 @@ final class ReviewSubmitModel: ObservableObject {
 
     init(orderId: Int64) {
         self.orderId = orderId
-        self.draftKey = "review_draft_\(orderId)"
+        self.draftKey = ReviewCreditLogic.reviewDraftPayloadKey(orderId: orderId)
         restoreDraft()
     }
 
@@ -64,6 +64,14 @@ final class ReviewSubmitModel: ObservableObject {
         if content.count > ReviewCreditConfigDefaults.reviewContentMax {
             content = String(content.prefix(ReviewCreditConfigDefaults.reviewContentMax))
         }
+        if let draftErr = ReviewCreditLogic.canDraftReview(
+            content: content.isEmpty ? nil : content,
+            imageCount: imageIds.count
+        ) {
+            errorMessage = draftErr.fallbackMessage
+            return
+        }
+        errorMessage = nil
         persistDraft()
     }
 
@@ -181,6 +189,10 @@ final class ReviewSubmitModel: ObservableObject {
             "image_ids": imageIds,
         ]
         UserDefaults.standard.set(payload, forKey: draftKey)
+        if !imageThumbnails.isEmpty {
+            let encoded = imageThumbnails.prefix(imageIds.count).compactMap { $0.jpegData(compressionQuality: 0.7)?.base64EncodedString() }
+            UserDefaults.standard.set(encoded, forKey: ReviewCreditLogic.reviewDraftThumbKey(orderId: orderId))
+        }
     }
 
     private func restoreDraft() {
@@ -190,6 +202,9 @@ final class ReviewSubmitModel: ObservableObject {
         }
         content = payload["content"] as? String ?? ""
         imageIds = payload["image_ids"] as? [String] ?? []
+        if let encoded = UserDefaults.standard.array(forKey: ReviewCreditLogic.reviewDraftThumbKey(orderId: orderId)) as? [String] {
+            imageThumbnails = encoded.compactMap { Data(base64Encoded: $0) }.compactMap { UIImage(data: $0) }
+        }
         if !imageIds.isEmpty || !(content.isEmpty) || rating != nil {
             draftHint = true
         }
@@ -197,6 +212,7 @@ final class ReviewSubmitModel: ObservableObject {
 
     private func clearDraft() {
         UserDefaults.standard.removeObject(forKey: draftKey)
+        UserDefaults.standard.removeObject(forKey: ReviewCreditLogic.reviewDraftThumbKey(orderId: orderId))
         draftHint = false
     }
 }

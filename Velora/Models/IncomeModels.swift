@@ -790,6 +790,15 @@ enum IncomeProfitLogic {
         let m = cal.component(.month, from: now)
         return String(format: "%04d-%02d", y, m)
     }
+
+    static func isValidPeriod(_ raw: String) -> Bool {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.count == 7 else { return false }
+        let parts = t.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0].count == 4, parts[1].count == 2 else { return false }
+        guard let y = Int(parts[0]), let m = Int(parts[1]) else { return false }
+        return (1900...9999).contains(y) && (1...12).contains(m)
+    }
 }
 
 // MARK: - Copy (design §9)

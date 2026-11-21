@@ -385,3 +385,112 @@ public enum BidAmountGrid {
         return aligned >= minNext ? aligned : nil
     }
 }
+
+// MARK: - Client bid UX helpers (DES-v1.3-03-01 / 03-02)
+
+/// Whether the client should allow manual bids (status + absolute end).
+public enum LotBidGate {
+    public static func canPlaceBid(lotStatus: String, endAt: Date, now: Date) -> Bool {
+        guard lotStatus.lowercased() == "live" else { return false }
+        return endAt > now
+    }
+}
+
+/// Ladder-aware increment for UI steppers and quick amounts.
+public enum BidIncrementUI {
+    public static func effectiveIncrementFen(
+        startPriceFen: Int64,
+        currentPriceFen: Int64,
+        bidCount: Int,
+        sellerBidIncrementFen: Int64,
+        tiers: [BidIncrementTier] = BidIncrementLadder.defaultTiers
+    ) -> Int64 {
+        let base = bidCount == 0 ? startPriceFen : currentPriceFen
+        return BidIncrementLadder.effectiveIncrement(
+            sellerBidIncrementFen: sellerBidIncrementFen,
+            currentPriceFen: base,
+            tiers: tiers
+        )
+    }
+
+    public static func quickBidAmounts(
+        minNextBidFen: Int64,
+        startPriceFen: Int64,
+        currentPriceFen: Int64,
+        bidCount: Int,
+        sellerBidIncrementFen: Int64,
+        tiers: [BidIncrementTier] = BidIncrementLadder.defaultTiers
+    ) -> [Int64] {
+        let inc = effectiveIncrementFen(
+            startPriceFen: startPriceFen,
+            currentPriceFen: currentPriceFen,
+            bidCount: bidCount,
+            sellerBidIncrementFen: sellerBidIncrementFen,
+            tiers: tiers
+        )
+        return [minNextBidFen, minNextBidFen + inc, minNextBidFen + inc * 4]
+    }
+}
+
+/// Patch「我的出价」list row after a successful bid.
+public enum MyBidsProjection {
+    public struct RowPatch: Equatable, Sendable {
+        public let hasBid: Bool
+        public let leading: Bool
+        public let maxAmountFen: Int64
+        public init(hasBid: Bool, leading: Bool, maxAmountFen: Int64) {
+            self.hasBid = hasBid
+            self.leading = leading
+            self.maxAmountFen = maxAmountFen
+        }
+    }
+
+    public static func patchAfterBid(
+        bidAmountFen: Int64,
+        currentPriceFen: Int64,
+        currentBidderId: Int64?,
+        viewerId: Int64?
+    ) -> RowPatch {
+        let leading = viewerId != nil && currentBidderId == viewerId
+        let maxAmt = max(bidAmountFen, currentPriceFen)
+        return RowPatch(hasBid: true, leading: leading, maxAmountFen: maxAmt)
+    }
+
+    public static func trailingCopy(leading: Bool, maxAmountFen: Int64, formatYuan: (Int64) -> String) -> String {
+        let amt = formatYuan(maxAmountFen)
+        if leading { return "领先 \(amt)" }
+        return "我出 \(amt) · 被超越"
+    }
+}
+
+/// Settlement prompts after `auction_ended`.
+public enum AuctionEndUX {
+    public static func isWinner(sold: Bool, winnerId: Int64?, viewerId: Int64?) -> Bool {
+        guard sold, let winnerId, let viewerId, viewerId > 0 else { return false }
+        return winnerId == viewerId
+    }
+
+    public static func shouldShowLostPrompt(
+        sold: Bool,
+        winnerId: Int64?,
+        viewerId: Int64?,
+        hadBid: Bool
+    ) -> Bool {
+        guard sold, hadBid else { return false }
+        return !isWinner(sold: sold, winnerId: winnerId, viewerId: viewerId)
+    }
+}
+
+/// Suppress duplicate outbid modals for the same min-next amount,
+/// and clear the prompt once the viewer is leading again.
+public enum OutbidPromptUX {
+    public static func shouldUpdate(currentMinNextFen: Int64?, newMinNextFen: Int64) -> Bool {
+        guard let currentMinNextFen else { return true }
+        return currentMinNextFen != newMinNextFen
+    }
+
+    /// Whether an existing outbid prompt should be dismissed (viewer leading / own bid).
+    public static func shouldClear(isLeading: Bool, ownBidJustPlaced: Bool = false) -> Bool {
+        isLeading || ownBidJustPlaced
+    }
+}

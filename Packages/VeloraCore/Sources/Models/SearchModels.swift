@@ -704,6 +704,28 @@ public struct SoldSnapshot: Codable, Equatable, Sendable {
     }
 }
 
+// MARK: - Client sort fallback (M012 — API may ignore sort on stale caches)
+
+public enum SearchListingLogic {
+    public static func sorted(_ items: [SearchListingCard], sort: ListingSearchSort?) -> [SearchListingCard] {
+        guard let sort else { return items }
+        switch sort {
+        case .priceAsc:
+            return items.sorted { $0.displayPrice < $1.displayPrice }
+        case .priceDesc:
+            return items.sorted { $0.displayPrice > $1.displayPrice }
+        default:
+            return items
+        }
+    }
+
+    public static func conditionChip(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+        let label = ListingConditionGrade.displayLabel(raw)
+        return label.isEmpty ? raw : label
+    }
+}
+
 // MARK: - Tonight window (Asia/Shanghai)
 
 public enum SearchBusinessTimezone {

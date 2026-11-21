@@ -287,11 +287,24 @@ final class ReviewCreditModelsTests: XCTestCase {
 
     func testBlockMessageDoesNotScare() {
         let msg = ReviewCreditLogic.blockMessage(score: 55, threshold: 60, action: "购买")
+        XCTAssertFalse(msg.contains("credit_below"))
+        XCTAssertTrue(msg.contains("信用分"))
         XCTAssertTrue(msg.contains("55"))
         XCTAssertTrue(msg.contains("60"))
         XCTAssertTrue(msg.contains("购买"))
         XCTAssertTrue(msg.contains("完成履约"))
         XCTAssertFalse(msg.lowercased().contains("ban"))
+        let block = CreditBlockInfo(code: .creditBelow60, score: 55, actionLabel: "出价")
+        XCTAssertEqual(block.message, ReviewCreditLogic.blockMessage(score: 55, threshold: 60, action: "出价"))
+        XCTAssertFalse(block.message.contains(block.code.rawValue))
+    }
+
+    func testDraftAllowsNoRating() {
+        XCTAssertNil(ReviewCreditLogic.canDraftReview(content: "还行", imageCount: 1))
+        XCTAssertEqual(ReviewCreditLogic.canSubmitReview(
+            rating: nil, content: "ok", imageCount: 0,
+            isLoggedIn: true, isRealNamed: true, windowOpen: true
+        ), .reviewForbidden)
     }
 
     func testSubmitGate() {

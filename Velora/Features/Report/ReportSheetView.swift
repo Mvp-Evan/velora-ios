@@ -39,6 +39,14 @@ struct ReportSheetView: View {
 
                     reasonPicker
 
+                    if model.reason?.requiresDetailText == true {
+                        VCard {
+                            TextField("请补充说明（必填）", text: $model.detailText, axis: .vertical)
+                                .lineLimit(3...6)
+                                .font(.vBody)
+                        }
+                    }
+
                     if model.targetType.isBountyTarget {
                         bountyExtras
                     } else if model.reason?.requiresEvidenceHint == true {

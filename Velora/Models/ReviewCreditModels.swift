@@ -1027,6 +1027,17 @@ enum ReviewCreditLogic {
         "\(ReviewCreditCopy.pendingBanner) · \(ReviewCreditCopy.pendingDaysPrefix)\(remainDays)\(ReviewCreditCopy.pendingDaysSuffix)"
     }
 
+    static func canDraftReview(
+        content: String?,
+        imageCount: Int
+    ) -> ReviewCreditErrorCode? {
+        if imageCount > ReviewCreditConfigDefaults.reviewMaxImages { return .contentRejected }
+        if let content, content.count > ReviewCreditConfigDefaults.reviewContentMax {
+            return .contentRejected
+        }
+        return nil
+    }
+
     static func canSubmitReview(
         rating: ReviewRating?,
         content: String?,
@@ -1065,4 +1076,12 @@ enum ReviewCreditLogic {
     }
 
     static func deltaTintIsPositive(_ delta: Int) -> Bool { delta > 0 }
+
+    static func reviewDraftPayloadKey(orderId: Int64) -> String {
+        "review_draft_\(orderId)"
+    }
+
+    static func reviewDraftThumbKey(orderId: Int64) -> String {
+        "review_draft_thumbs_\(orderId)"
+    }
 }

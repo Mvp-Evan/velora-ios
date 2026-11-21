@@ -12,6 +12,7 @@ struct LoginView: View {
     @State private var loggingIn = false
     @State private var agreed = true
     @State private var legalDoc: LegalDocument?
+    @State private var formError: String?
     @FocusState private var focus: Field?
     enum Field { case phone, code, invite }
 
@@ -71,6 +72,13 @@ struct LoginView: View {
                         }
 
                         VPrimaryButton(title: "登录 / 注册", loading: loggingIn, disabled: !canLogin, action: login)
+
+                        if let formError, !formError.isEmpty {
+                            Text(formError)
+                                .font(.vCaption)
+                                .foregroundStyle(Color.vPrimary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
 
                         HStack(alignment: .top, spacing: 6) {
                             Button { agreed.toggle() } label: {
@@ -158,6 +166,7 @@ struct LoginView: View {
     }
 
     private func login() {
+        formError = nil
         loggingIn = true
         Task {
             defer { loggingIn = false }
@@ -166,6 +175,8 @@ struct LoginView: View {
                 try await session.login(phone: phone, code: code, inviteCode: invite)
                 ToastCenter.shared.show("登录成功", .success)
                 dismiss()
+            } catch let e as APIError where e.authCode == .invalidSmsCode {
+                formError = e.message.isEmpty ? "验证码错误或已过期" : e.message
             } catch let e as APIError where e.authCode == .inviteRequired {
                 needsInvite = true
                 focus = .invite

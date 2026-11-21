@@ -779,4 +779,39 @@ public enum ChatLogic {
     public static func validateImageSize(bytes: Int, maxMB: Int = ChatConfigDefaults.imageMaxMB) -> ChatErrorCode? {
         bytes > imageMaxBytes(maxMB: maxMB) ? .imageTooLarge : nil
     }
+
+    /// Minimal timeline row for pagination merge tests + client helpers.
+    public struct TimelineItem: Equatable, Sendable {
+        public let id: Int64
+        public let createdAt: Date
+        public init(id: Int64, createdAt: Date) {
+            self.id = id
+            self.createdAt = createdAt
+        }
+    }
+
+    /// Prepend older page while keeping ascending time order (id tie-break).
+    public static func mergeOlderMessages(existing: [TimelineItem], older: [TimelineItem]) -> [TimelineItem] {
+        guard !older.isEmpty else { return existing }
+        let combined = older + existing
+        return combined.sorted { a, b in
+            if a.createdAt == b.createdAt { return a.id < b.id }
+            return a.createdAt < b.createdAt
+        }
+    }
+
+    public static func shouldRequestOlderPage(hasOlder: Bool, loading: Bool, pageSize: Int, currentCount: Int) -> Bool {
+        guard hasOlder, !loading else { return false }
+        return currentCount >= pageSize
+    }
+
+    /// Send quick-reply chip text without relying on async TextField binding.
+    public static func quickReplyPayload(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Mark-read should use last message id when present.
+    public static func markReadMessageId(messages: [TimelineItem]) -> Int64? {
+        messages.last?.id
+    }
 }

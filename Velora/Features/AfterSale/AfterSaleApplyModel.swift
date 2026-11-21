@@ -10,7 +10,7 @@ final class AfterSaleApplyModel: ObservableObject {
     let signedAt: Date?
     let shipDeadline: Date?
     let remainingPayableCents: Int64
-    let unboxPhotoCount: Int
+    let initialUnboxPhotoCount: Int
     let isRealNamed: Bool
     let accountRestricted: Bool
 
@@ -18,6 +18,10 @@ final class AfterSaleApplyModel: ObservableObject {
     @Published var claim: AfterSaleClaim = .refund
     @Published var amountYuanText: String = ""
     @Published var reason: String = ""
+    @Published var unboxPhotoIds: [Int64] = []
+    /// Set when EvidenceCaptureView unbox flow finishes (M052).
+    @Published var unboxEvidenceReady = false
+    @Published var uploadingPhotos = false
     @Published var submitting = false
     @Published var errorMessage: String?
     @Published var created: AfterSale?
@@ -41,10 +45,16 @@ final class AfterSaleApplyModel: ObservableObject {
         self.signedAt = signedAt
         self.shipDeadline = shipDeadline
         self.remainingPayableCents = remainingPayableCents
-        self.unboxPhotoCount = unboxPhotoCount
+        self.initialUnboxPhotoCount = unboxPhotoCount
         self.isRealNamed = isRealNamed
         self.accountRestricted = accountRestricted
         self.amountYuanText = String(format: "%.2f", Double(remainingPayableCents) / 100)
+    }
+
+    var unboxPhotoCount: Int {
+        let fromIds = unboxPhotoIds.count
+        let fromEvidence = unboxEvidenceReady ? AfterSaleConfigDefaults.appearanceUnboxPhotosMin : 0
+        return max(initialUnboxPhotoCount, fromIds, fromEvidence)
     }
 
     var types: [AfterSaleType] { AfterSaleLogic.selectableTypes() }
@@ -107,7 +117,7 @@ final class AfterSaleApplyModel: ObservableObject {
             claim: claim,
             claimAmountCents: claimAmountCents,
             reason: reason.trimmingCharacters(in: .whitespacesAndNewlines),
-            unboxPhotoIds: []
+            unboxPhotoIds: unboxPhotoIds
         )
         do {
             created = try await API.createAfterSale(
@@ -124,5 +134,11 @@ final class AfterSaleApplyModel: ObservableObject {
             }
             ToastCenter.shared.error(error)
         }
+    }
+
+    func appendUnboxPhotoIds(_ ids: [Int64]) {
+        guard !ids.isEmpty else { return }
+        unboxPhotoIds.append(contentsOf: ids)
+        errorMessage = gateError?.fallbackMessage
     }
 }

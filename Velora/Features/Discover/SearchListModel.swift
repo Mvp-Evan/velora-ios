@@ -44,7 +44,7 @@ final class SearchListModel: ObservableObject {
         }
         do {
             let page = try await API.listings(query)
-            items = page.items
+            items = SearchListingLogic.sorted(page.items, sort: query.sort)
             lastGoodItems = page.items
             hasMore = page.hasMore
             total = page.total

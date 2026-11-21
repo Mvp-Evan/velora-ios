@@ -1,10 +1,14 @@
 import SwiftUI
+import PhotosUI
 
 /// Buyer apply form (DES-v1.3-09-02 §5.1 / §9).
 struct AfterSaleApplyView: View {
     @StateObject private var model: AfterSaleApplyModel
     @Environment(\.dismiss) private var dismiss
     var onCreated: ((AfterSale) -> Void)?
+
+    @State private var photoPicker: [PhotosPickerItem] = []
+    @State private var showUnboxCapture = false
 
     init(
         orderId: Int64,
@@ -37,10 +41,11 @@ struct AfterSaleApplyView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpace.l) {
-                Text(AfterSaleCopy.applyEmptyHint)
+                Text(AfterSaleLogic.applyTypeBanner(for: model.type))
                     .font(.vCaption)
                     .foregroundStyle(Color.vTextSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .id(model.type)
 
                 typePicker
                 claimPicker
@@ -51,6 +56,7 @@ struct AfterSaleApplyView: View {
                         .font(.vBody)
                 }
                 reasonField
+                photoSection
 
                 if let err = model.errorMessage ?? model.gateError?.fallbackMessage {
                     Text(err)
@@ -61,6 +67,12 @@ struct AfterSaleApplyView: View {
                         Button("改选疑似假货") {
                             model.type = .suspectedFake
                             model.onTypeChange()
+                        }
+                        .font(.vCaptionMedium)
+                    }
+                    if model.gateError?.opensUnboxCapture == true {
+                        Button(EvidenceCopy.supplementUnbox) {
+                            showUnboxCapture = true
                         }
                         .font(.vCaptionMedium)
                     }
@@ -89,8 +101,29 @@ struct AfterSaleApplyView: View {
         .background(Color.vBackground)
         .navigationTitle(AfterSaleCopy.applyTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("取消") { dismiss() }
+            }
+        }
         .onChange(of: model.type) { _, _ in model.onTypeChange() }
         .onChange(of: model.claim) { _, _ in model.onClaimChange() }
+        .onChange(of: photoPicker) { _, items in
+            guard !items.isEmpty else { return }
+            let captured = items
+            photoPicker = []
+            Task { await uploadPickedPhotos(captured) }
+        }
+        .sheet(isPresented: $showUnboxCapture) {
+            EvidenceCaptureView(
+                orderId: model.orderId,
+                orderNo: "\(model.orderId)",
+                kindGroup: .unbox
+            ) {
+                model.unboxEvidenceReady = true
+                model.errorMessage = model.gateError?.fallbackMessage
+            }
+        }
     }
 
     private var typePicker: some View {
@@ -156,6 +189,64 @@ struct AfterSaleApplyView: View {
                     .lineLimit(3...8)
                     .font(.vBody)
             }
+        }
+    }
+
+    private var photoSection: some View {
+        VCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("开箱照片").font(.vHeadline)
+                    Text("\(model.unboxPhotoCount)/\(EvidenceConfigDefaults.unboxPhotosMinCount)+")
+                        .font(.vCaption)
+                        .foregroundStyle(Color.vTextTertiary)
+                    Spacer()
+                    if model.uploadingPhotos { ProgressView().controlSize(.small) }
+                }
+                Text("品相类售后至少需要 \(EvidenceConfigDefaults.unboxPhotosMinCount) 张开箱照片")
+                    .font(.vMicro)
+                    .foregroundStyle(Color.vTextTertiary)
+                HStack(spacing: 12) {
+                    PhotosPicker(
+                        selection: $photoPicker,
+                        maxSelectionCount: EvidenceConfigDefaults.unboxPhotosMaxCount - model.unboxPhotoIds.count,
+                        matching: .images
+                    ) {
+                        Label("从相册添加", systemImage: "photo.on.rectangle")
+                            .font(.vCaptionMedium)
+                    }
+                    .disabled(model.uploadingPhotos)
+
+                    Button {
+                        showUnboxCapture = true
+                    } label: {
+                        Label("拍摄开箱", systemImage: "camera")
+                            .font(.vCaptionMedium)
+                    }
+                }
+            }
+        }
+    }
+
+    private func uploadPickedPhotos(_ items: [PhotosPickerItem]) async {
+        model.uploadingPhotos = true
+        defer { model.uploadingPhotos = false }
+        var datas: [Data] = []
+        for item in items {
+            if let raw = try? await item.loadTransferable(type: Data.self) {
+                datas.append(raw)
+            }
+        }
+        guard !datas.isEmpty else { return }
+        do {
+            let uploaded = try await API.uploadPublishImages(datas)
+            let ids = uploaded.compactMap { item -> Int64? in
+                guard let raw = item.imageId, let id = Int64(raw) else { return nil }
+                return id
+            }
+            model.appendUnboxPhotoIds(ids)
+        } catch {
+            ToastCenter.shared.error(error)
         }
     }
 }

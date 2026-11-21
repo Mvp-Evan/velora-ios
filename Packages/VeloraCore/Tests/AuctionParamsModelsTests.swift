@@ -230,6 +230,7 @@ final class AuctionParamsModelsTests: XCTestCase {
         d.durationDays = 3
         d.auctionKind = AuctionKind.brandSpecial.rawValue
         d.productImages = (0..<5).map { PublishImageSlot(sha256: "x\($0)") }
+        d.condition = "unpacked_mint"
         d.feeQuoteId = "fq"
         XCTAssertEqual(PublishValidator.validate(d, enabledScales: ["1:43"]), .editionRequired)
         d.limitedNo = "01/99"

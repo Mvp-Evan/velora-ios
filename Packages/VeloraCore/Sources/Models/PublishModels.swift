@@ -28,6 +28,8 @@ public enum PublishErrorCode: String, Codable, Sendable, CaseIterable {
     case reserveTooLow = "reserve_too_low"
     case reserveBelowStart = "reserve_below_start"
     case invalidStock = "invalid_stock"
+    case conditionRequired = "condition_required"
+    case priceRequired = "price_required"
     case imageTooLarge = "image_too_large"
     case capabilityDisabled = "capability_disabled"
     case feeUnavailable = "fee_unavailable"
@@ -58,6 +60,8 @@ public enum PublishErrorCode: String, Codable, Sendable, CaseIterable {
         case .imagesNotDistinct: return "商品图不能全部相同"
         case .reserveTooLow, .reserveBelowStart: return "保留价不可低于起拍价"
         case .invalidStock: return "库存数量无效"
+        case .conditionRequired: return "请选择成色"
+        case .priceRequired: return "请填写有效价格（≥1 元）"
         case .imageTooLarge: return "单张图片过大（压缩前 ≤8MB）"
         case .capabilityDisabled: return "平台已限制你的发布权限"
         case .feeUnavailable: return "费率服务暂不可用"
@@ -335,6 +339,33 @@ public struct FeeQuoteEstimate: Codable, Equatable, Sendable {
         self.shippingFee = shippingFee
     }
 
+    enum CodingKeys: String, CodingKey {
+        case feeQuoteId, rate, platformFee, sellerNet, quoteHash, ruleVersion, expiresAt, price, shippingFee
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let s = try? c.decode(String.self, forKey: .feeQuoteId) {
+            feeQuoteId = s
+        } else if let n = try? c.decode(Int64.self, forKey: .feeQuoteId) {
+            feeQuoteId = String(n)
+        } else if let n = try? c.decode(UInt64.self, forKey: .feeQuoteId) {
+            feeQuoteId = String(n)
+        } else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .feeQuoteId, in: c, debugDescription: "fee_quote_id must be string or number"
+            )
+        }
+        rate = try c.decode(Double.self, forKey: .rate)
+        platformFee = try c.decode(Int64.self, forKey: .platformFee)
+        sellerNet = try c.decode(Int64.self, forKey: .sellerNet)
+        quoteHash = try c.decode(String.self, forKey: .quoteHash)
+        ruleVersion = try c.decode(String.self, forKey: .ruleVersion)
+        expiresAt = try c.decodeIfPresent(Date.self, forKey: .expiresAt)
+        price = try c.decodeIfPresent(Int64.self, forKey: .price)
+        shippingFee = try c.decodeIfPresent(Int64.self, forKey: .shippingFee)
+    }
+
     public var ratePercentText: String {
         String(format: "%.1f%%", rate * 100)
     }
@@ -347,6 +378,8 @@ public struct FeeQuoteEstimate: Codable, Equatable, Sendable {
     public var disclaimer: String {
         "以成交当时费率为准，规则变了可能不同"
     }
+
+    public var feeQuoteIdNumber: Int64? { Int64(feeQuoteId) }
 }
 
 public struct FeeEstimateRequest: Equatable, Sendable {
@@ -716,6 +749,7 @@ public enum PublishValidator {
         }
 
         let condition = draft.effectiveCondition
+        if condition == nil { return .conditionRequired }
         if condition?.requiresFlaw == true {
             let descOK = !draft.flawDesc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             if !descOK || draft.flawImages.count < PublishLimits.flawImageMinWhenRequired {
@@ -744,7 +778,7 @@ public enum PublishValidator {
         }
 
         guard let price = draft.priceFen, price >= PublishLimits.minPriceFen else {
-            return .invalidStock
+            return .priceRequired
         }
 
         switch draft.tradeType {

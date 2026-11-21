@@ -90,6 +90,26 @@ final class BootstrapDecodingTests: XCTestCase {
         XCTAssertEqual(inlineBoot.serverTime, 1_793_880_000_000)
     }
 
+    func testPublishActionDecodesReadyAndCapFromServer() throws {
+        let json = """
+        {
+          "publish_actions": [
+            {"key":"fixed","title":"直购","ready":true,"cap":"can_fixed"},
+            {"key":"auction","title":"拍卖","ready":true,"cap":"can_auction"},
+            {"key":"post","title":"帖子","ready":false,"hidden":true}
+          ],
+          "flags": {},
+          "server_time": 1
+        }
+        """.data(using: .utf8)!
+        let boot = try APIClient.decoder.decode(MeBootstrap.self, from: json)
+        XCTAssertEqual(boot.publishActions.map(\.key), ["fixed", "auction", "post"])
+        XCTAssertEqual(boot.publishActions.map(\.enabled), [true, true, false])
+        XCTAssertEqual(boot.publishActions[0].requiresCapability, "can_fixed")
+        XCTAssertEqual(boot.publishActions[1].requiresCapability, "can_auction")
+        XCTAssertTrue(boot.publishActions.filter(\.enabled).map(\.key) == ["fixed", "auction"])
+    }
+
     func testTabKeyMappingNewSchema() {
         let keys = ["buy", "community", "publish", "inbox", "me"]
         let tabs = keys.compactMap(AppTab.from(navKey:))

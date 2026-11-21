@@ -129,37 +129,34 @@ struct MainTabView: View {
     @EnvironmentObject private var router: AppRouter
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Group {
-                switch router.tab {
-                case .buy, .home:
-                    HomeView()
-                case .auctions:
-                    AuctionsView()
-                case .community:
-                    CommunityView()
-                case .publish:
-                    // Publish is a modal; keep last browse surface under the tab chrome.
-                    HomeView()
-                case .inbox:
-                    NotificationCenterView()
-                case .me:
-                    MeShellView()
-                }
+        Group {
+            switch router.tab {
+            case .buy, .home:
+                HomeView()
+            case .auctions:
+                AuctionsView()
+            case .community:
+                CommunityView()
+            case .publish:
+                // Publish is a modal; keep last browse surface under the tab chrome.
+                HomeView()
+            case .inbox:
+                NotificationCenterView()
+            case .me:
+                MeShellView()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .safeAreaPadding(.bottom, router.hideTabBar ? 0 : 84)
-
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             if !router.hideTabBar {
                 VTabBar()
             }
         }
-        .ignoresSafeArea(.keyboard)
         .fullScreenCover(isPresented: $router.showPublish) {
             PublishView(tradeType: router.publishTradeType)
         }
         .confirmationDialog("选择发布类型", isPresented: $router.showPublishActions, titleVisibility: .visible) {
-            ForEach(router.publishActions.filter(\.enabled)) { action in
+            ForEach(visiblePublishActions) { action in
                 Button(action.title) {
                     handlePublishAction(action)
                 }
@@ -169,13 +166,16 @@ struct MainTabView: View {
         .sheet(item: Binding(get: { router.pendingLot.map(IDBox.init) }, set: { router.pendingLot = $0?.id })) { box in
             NavigationStack { LotDetailView(lotId: box.id) }
         }
-        .sheet(item: Binding(
-            get: { router.pendingListing.map(IDBox.init) },
-            set: {
-                router.pendingListing = $0?.id
-                if $0 == nil { router.pendingListingOfferId = nil }
-            }
-        )) { box in
+        .sheet(
+            item: Binding(
+                get: { router.pendingListing.map(IDBox.init) },
+                set: {
+                    router.pendingListing = $0?.id
+                    if $0 == nil { router.pendingListingOfferId = nil }
+                }
+            ),
+            onDismiss: { router.promoteDeferredOrderAfterListingDismiss() }
+        ) { box in
             NavigationStack {
                 ListingDetailView(
                     listingId: box.id,
@@ -202,13 +202,25 @@ struct MainTabView: View {
             CreditBlockView(
                 info: info,
                 onDismiss: { router.creditBlock = nil },
-                onOpenCredit: {
-                    router.creditBlock = nil
-                    router.tab = .me
-                }
+                onOpenCredit: { router.openMeCredit() }
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $router.showMeCredit) {
+            NavigationStack { MeCreditView() }
+        }
+    }
+
+    /// DES-v1.3-00-02: 直购仅 personal + can_fixed；品牌/代拍不展示。
+    private var visiblePublishActions: [PublishAction] {
+        let sellerType = session.bootstrap?.seller?.sellerType
+        return router.publishActions.filter { action in
+            guard action.enabled else { return false }
+            if action.key == "fixed" {
+                return sellerType == "personal"
+            }
+            return true
         }
     }
 
@@ -223,6 +235,11 @@ struct MainTabView: View {
                 || sellerStatus == "completed"
                 || sellerStatus == "finished"
         )
+        // Identity clamp: 直购仅个人卖家（与服务端 publish_actions / CapFixed 一致）。
+        if action.key == "fixed", seller?.sellerType != "personal" {
+            ToastCenter.shared.show(PublishErrorCode.capabilityDisabled.fallbackMessage, .info)
+            return
+        }
         let gate = PublishEntryResolver.resolve(
             isLoggedIn: session.isLoggedIn,
             isFrozen: session.accessFlags.isFrozen,

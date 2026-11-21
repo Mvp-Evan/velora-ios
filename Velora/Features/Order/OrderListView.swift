@@ -249,7 +249,7 @@ struct OrderRow: View {
         if order.isSeller {
             return order.status == .paid || order.isReviewPendingForMe
         }
-        return order.status == .pendingPayment
+        return OrderLogic.buyerShowsPayAction(status: order.status.asCenterStatus, payRemainSeconds: remainPay)
             || order.status == .shipped
             || order.isReviewPendingForMe
     }

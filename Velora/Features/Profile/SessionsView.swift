@@ -6,6 +6,8 @@ struct SessionsView: View {
     @State private var state: LoadState = .idle
     @State private var unsupported = false
     @State private var revokingId: String?
+    @State private var pendingRevoke: DeviceSession?
+    @State private var showRevokeConfirm = false
 
     var body: some View {
         Group {
@@ -40,6 +42,16 @@ struct SessionsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
         .refreshable { await load() }
+        .confirmationDialog("确认下线该设备？", isPresented: $showRevokeConfirm, titleVisibility: .visible) {
+            Button("下线", role: .destructive) {
+                guard let s = pendingRevoke else { return }
+                pendingRevoke = nil
+                Task { await revoke(s) }
+            }
+            Button("取消", role: .cancel) { pendingRevoke = nil }
+        } message: {
+            Text("下线后该设备需重新登录。")
+        }
     }
 
     private func sessionRow(_ s: DeviceSession) -> some View {
@@ -72,7 +84,8 @@ struct SessionsView: View {
             Spacer()
             if !s.current {
                 Button {
-                    Task { await revoke(s) }
+                    pendingRevoke = s
+                    showRevokeConfirm = true
                 } label: {
                     if revokingId == s.id {
                         ProgressView()

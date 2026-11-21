@@ -40,24 +40,22 @@ final class HomeFeedModel: ObservableObject {
     func setTab(_ tab: HomeFeedTab) {
         guard self.tab != tab else { return }
         self.tab = tab
-        items = []
         cursor = nil
         hasMore = true
         needsLogin = false
         showingHotFallback = false
-        state = .idle
+        state = items.isEmpty ? .idle : .loaded
         realtime.clearForFilterChange()
     }
 
     func setTradeType(_ tradeType: String?) {
         guard self.tradeType != tradeType else { return }
         self.tradeType = tradeType
-        items = []
         cursor = nil
         hasMore = true
         needsLogin = false
         showingHotFallback = false
-        state = .idle
+        state = items.isEmpty ? .idle : .loaded
         realtime.clearForFilterChange()
     }
 
@@ -67,7 +65,8 @@ final class HomeFeedModel: ObservableObject {
             hasMore = true
             needsLogin = false
             showingHotFallback = false
-            if items.isEmpty { state = .loading }
+            items = []
+            state = .loading
             realtime.acknowledgeBannerAndRefresh()
         }
         do {

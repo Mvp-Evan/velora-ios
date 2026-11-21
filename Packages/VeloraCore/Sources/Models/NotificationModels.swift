@@ -1056,4 +1056,24 @@ public enum NotifyLogic {
         if userOnline && !pushEvenWhenOnline { return true }
         return false
     }
+
+    public static let pushEvenWhenOnlineDefaultsKey = "velora.push_even_when_online"
+
+    /// Client cache so「即使在线也推送」survives offline settings load failures.
+    public static func readCachedPushEvenWhenOnline(defaults: UserDefaults = .standard) -> Bool? {
+        guard defaults.object(forKey: pushEvenWhenOnlineDefaultsKey) != nil else { return nil }
+        return defaults.bool(forKey: pushEvenWhenOnlineDefaultsKey)
+    }
+
+    public static func writeCachedPushEvenWhenOnline(_ value: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(value, forKey: pushEvenWhenOnlineDefaultsKey)
+    }
+
+    public static func mergedPushEvenWhenOnline(
+        serverValue: Bool?,
+        cached: Bool?,
+        defaultValue: Bool = NotifyConfigDefaults.pushEvenWhenOnlineDefault
+    ) -> Bool {
+        serverValue ?? cached ?? defaultValue
+    }
 }

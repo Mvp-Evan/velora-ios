@@ -13,6 +13,8 @@ struct ChatView: View {
     @State private var text = ""
     @State private var sending = false
     @State private var loaded = false
+    @State private var loadingOlder = false
+    @State private var hasOlder = true
     @State private var bag = Set<AnyCancellable>()
     @StateObject private var offerActions = OfferActionModel()
     @State private var rejectOfferId: Int64?
@@ -67,7 +69,14 @@ struct ChatView: View {
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 40)
                         }
+                        if loadingOlder {
+                            ProgressView().padding(.vertical, 8)
+                        }
                         ForEach(Array(messages.enumerated()), id: \.element.id) { i, m in
+                            if i == 0, hasOlder, loaded {
+                                Color.clear.frame(height: 1)
+                                    .onAppear { Task { await loadOlder() } }
+                            }
                             if i == 0 || m.createdAt.timeIntervalSince(messages[i - 1].createdAt) > 300 {
                                 Text(m.createdAt.relativeText).font(.vMicro).foregroundStyle(Color.vTextTertiary).padding(.top, 6)
                             }
@@ -197,7 +206,22 @@ struct ChatView: View {
 
     @ViewBuilder
     private var subjectBanner: some View {
-        if let lot = conversation.lot {
+        if conversation.resolvedSubjectType == .listing, conversation.resolvedSubjectId > 0 {
+            Button { showListingNav = ListingNavTarget(id: conversation.resolvedSubjectId) } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "tag")
+                        .foregroundStyle(Color.vPrimary)
+                        .frame(width: 44, height: 44)
+                        .background(Color.vFill, in: RoundedRectangle(cornerRadius: VRadius.s, style: .continuous))
+                    Text(ChatCopy.listingCardTitle).font(.vCaptionMedium)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.vCaption).foregroundStyle(Color.vTextTertiary)
+                }
+                .padding(.horizontal, VSpace.l).padding(.vertical, 10)
+                .background(Color.vSurface)
+            }
+            .buttonStyle(.plain)
+        } else if let lot = conversation.lot {
             Button { router.open(lot: lot.id) } label: {
                 HStack(spacing: 10) {
                     RemoteImage(lot.cover).frame(width: 44, height: 44).clipShape(RoundedRectangle(cornerRadius: VRadius.s, style: .continuous))
@@ -228,21 +252,6 @@ struct ChatView: View {
                             .font(.vMicro)
                             .foregroundStyle(Color.vTextSecondary)
                     }
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.vCaption).foregroundStyle(Color.vTextTertiary)
-                }
-                .padding(.horizontal, VSpace.l).padding(.vertical, 10)
-                .background(Color.vSurface)
-            }
-            .buttonStyle(.plain)
-        } else if conversation.resolvedSubjectType == .listing, conversation.resolvedSubjectId > 0 {
-            Button { showListingNav = ListingNavTarget(id: conversation.resolvedSubjectId) } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "tag")
-                        .foregroundStyle(Color.vPrimary)
-                        .frame(width: 44, height: 44)
-                        .background(Color.vFill, in: RoundedRectangle(cornerRadius: VRadius.s, style: .continuous))
-                    Text(ChatCopy.listingCardTitle).font(.vCaptionMedium)
                     Spacer()
                     Image(systemName: "chevron.right").font(.vCaption).foregroundStyle(Color.vTextTertiary)
                 }
@@ -380,7 +389,7 @@ struct ChatView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(quickReplies, id: \.self) { q in
-                            Button { text = q; send() } label: {
+                            Button { sendQuickReply(q) } label: {
                                 Text(q).font(.vCaption).foregroundStyle(Color.vText).padding(.horizontal, 12).padding(.vertical, 6).background(Color.vFill, in: Capsule())
                             }
                         }
@@ -431,6 +440,7 @@ struct ChatView: View {
     private func load() async {
         messages = (try? await API.messages(conversation.id)) ?? []
         loaded = true
+        hasOlder = messages.count >= 20
         await session.refreshMe()
         // N-23: opening conversation clears local merge pending (design §9).
         if var pending = localPushCollapse {
@@ -441,11 +451,54 @@ struct ChatView: View {
                 PushCollapseState(conversationId: conversation.id, recipientId: uid)
             )
         }
-        _ = try? await API.markConversationRead(conversation.id, lastMessageId: messages.last?.id)
+        let timeline = messages.map { ChatLogic.TimelineItem(id: $0.id, createdAt: $0.createdAt) }
+        if let lastId = ChatLogic.markReadMessageId(messages: timeline) {
+            _ = try? await API.markConversationRead(conversation.id, lastMessageId: lastId)
+        } else {
+            _ = try? await API.markConversationRead(conversation.id, lastMessageId: nil)
+        }
         // Hydrate mute / session risk hint from recent messages.
         for m in messages where m.effectiveRiskAction == .warn {
             applyWarnBanner(from: m.risk)
         }
+    }
+
+    private func sendQuickReply(_ q: String) {
+        guard composer.isEnabled else { return }
+        let payload = ChatLogic.quickReplyPayload(q)
+        guard !payload.isEmpty else { return }
+        if OfferLogic.looksLikePriceOfferText(payload) {
+            ToastCenter.shared.show(OfferCopy.chatGuide + " — " + OfferCopy.chatAmountHint, .info)
+        } else if IMRiskLogic.looksLikePureAmount(payload) {
+            ToastCenter.shared.show(IMRiskCopy.pureAmountHint, .info)
+        }
+        sending = true
+        interceptBanner = nil
+        Task {
+            defer { sending = false }
+            do {
+                let m = try await API.send(conversation.id, type: .text, content: payload)
+                if !messages.contains(where: { $0.id == m.id }) { messages.append(m) }
+                applyWarnBanner(from: m.risk)
+            } catch {
+                handleSendError(error, draft: payload)
+            }
+        }
+    }
+
+    private func loadOlder() async {
+        guard hasOlder, !loadingOlder, let first = messages.first?.id else { return }
+        loadingOlder = true
+        defer { loadingOlder = false }
+        let older = (try? await API.messages(conversation.id, before: first)) ?? []
+        hasOlder = older.count >= 20
+        guard !older.isEmpty else { hasOlder = false; return }
+        let existing = messages.map { ChatLogic.TimelineItem(id: $0.id, createdAt: $0.createdAt) }
+        let olderItems = older.map { ChatLogic.TimelineItem(id: $0.id, createdAt: $0.createdAt) }
+        let merged = ChatLogic.mergeOlderMessages(existing: existing, older: olderItems)
+        let byId = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
+        let olderById = Dictionary(uniqueKeysWithValues: older.map { ($0.id, $0) })
+        messages = merged.compactMap { olderById[$0.id] ?? byId[$0.id] }
     }
 
     private func send() {
@@ -570,7 +623,7 @@ struct ChatView: View {
         switch action {
         case .accept:
             if let resp = await offerActions.acceptOffer(offerId: card.offerId) {
-                router.open(order: resp.orderId)
+                router.openOrderAfterListingIfNeeded(orderId: resp.orderId)
                 await load()
             }
         case .reject:

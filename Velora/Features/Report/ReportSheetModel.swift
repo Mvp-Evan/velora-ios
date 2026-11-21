@@ -13,6 +13,7 @@ final class ReportSheetModel: ObservableObject {
     let peerName: String?
 
     @Published var reason: ReportReason?
+    @Published var detailText: String = ""
     @Published var attachConversation = false
     @Published var evidenceURLs: [String] = []
     @Published var evidenceThumbnails: [UIImage] = []
@@ -68,7 +69,8 @@ final class ReportSheetModel: ObservableObject {
             isLoggedIn: SessionStore.shared.isLoggedIn,
             isRealNamed: isRealNamed,
             accountFrozen: accountFrozen,
-            isOrderBuyer: isOrderBuyer
+            isOrderBuyer: isOrderBuyer,
+            detailText: reason?.requiresDetailText == true ? detailText : nil
         )
     }
 
@@ -85,7 +87,8 @@ final class ReportSheetModel: ObservableObject {
                 isLoggedIn: SessionStore.shared.isLoggedIn,
                 isRealNamed: isRealNamed,
                 accountFrozen: accountFrozen,
-                isOrderBuyer: isOrderBuyer
+                isOrderBuyer: isOrderBuyer,
+                detailText: reason?.requiresDetailText == true ? detailText : nil
             )
     }
 
@@ -142,7 +145,8 @@ final class ReportSheetModel: ObservableObject {
             reason: reason,
             evidenceUrls: evidenceURLs,
             orderId: orderId,
-            attachConversation: attachConversation && targetType.isBountyTarget
+            attachConversation: attachConversation && targetType.isBountyTarget,
+            detailText: reason.requiresDetailText ? RiskLogic.normalizedReportDetail(detailText) : nil
         )
         do {
             created = try await API.createReport(req, idempotencyKey: idempotencyKey)

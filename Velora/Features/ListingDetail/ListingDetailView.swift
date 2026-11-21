@@ -711,7 +711,7 @@ struct ListingDetailView: View {
         case .accept:
             if let resp = await offerActions.acceptOffer(offerId: card.offerId) {
                 payOrderId = resp.orderId
-                router.open(order: resp.orderId)
+                router.openOrderAfterListingIfNeeded(orderId: resp.orderId)
                 await refreshMyOffer()
             }
         case .reject:

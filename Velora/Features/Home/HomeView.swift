@@ -438,6 +438,7 @@ struct HomeView: View {
             .buttonStyle(.plain)
             .reportLotCardVisibility(
                 lotId: card.tradeType == "auction" ? card.lotId : nil,
+                shouldReportFrame: { id, frame in feed.realtime.shouldReportFrame(lotId: id, frame: frame) },
                 onRatio: { id, ratio in feed.realtime.updateVisibility(lotId: id, ratio: ratio) },
                 onDisappear: { id in feed.realtime.cardDidDisappear(lotId: id) }
             )

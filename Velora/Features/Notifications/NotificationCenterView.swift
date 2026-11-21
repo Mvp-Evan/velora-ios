@@ -270,17 +270,8 @@ struct NotificationCenterView: View {
         marking = true
         defer { marking = false }
         do {
-            if tab.usesConversationsAPI {
-                try await API.markAllConversationsRead()
-            } else if let cat = tab.apiCategory {
-                _ = try await API.markNotificationsRead(
-                    MarkNotificationsReadRequest(category: cat.rawValue)
-                )
-            } else {
-                _ = try await API.markNotificationsRead(
-                    MarkNotificationsReadRequest(all: true)
-                )
-            }
+            try await API.markAllConversationsRead()
+            _ = try await API.markNotificationsRead(MarkNotificationsReadRequest(all: true))
             counters = try await API.notificationUnread()
             session.applyInboxCounters(counters)
             await reload(force: true)

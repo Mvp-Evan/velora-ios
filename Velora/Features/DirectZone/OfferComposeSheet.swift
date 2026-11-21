@@ -185,10 +185,13 @@ struct OfferComposeSheet: View {
         case .counter(let offerId, _):
             card = await model.counterOffer(offerId: offerId, priceFen: priceFen)
         }
+        // Always dismiss on success — even when API omits a new card payload (M034).
         if let card {
             onDone?(card)
             dismiss()
-        } else if model.lastCard != nil {
+            return
+        }
+        if model.lastErrorMessage == nil {
             onDone?(model.lastCard)
             dismiss()
         }

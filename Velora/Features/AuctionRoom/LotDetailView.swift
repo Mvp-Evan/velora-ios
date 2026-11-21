@@ -16,6 +16,8 @@ struct LotDetailView: View {
     @State private var showProxySheet = false
     @State private var showAllBids = false
     @State private var showCancelConfirm = false
+    @State private var pendingQuickBid: Money?
+    @State private var showQuickBidConfirm = false
     @State private var showGallery = false
     @State private var showFlawGallery = false
     @State private var showSupplementCamera = false
@@ -140,6 +142,20 @@ struct LotDetailView: View {
             Button("撤拍", role: .destructive) { Task { await model.cancel() } }
         } message: {
             Text("撤拍后拍品将不再展示。\(AuctionSettlementCopy.cancelDisabledHasBids)。")
+        }
+        .confirmationDialog("确认出价？", isPresented: $showQuickBidConfirm, titleVisibility: .visible) {
+            Button("确认出价") {
+                guard let amt = pendingQuickBid else { return }
+                pendingQuickBid = nil
+                Task { await model.placeBid(amt) }
+            }
+            Button("取消", role: .cancel) { pendingQuickBid = nil }
+        } message: {
+            if let amt = pendingQuickBid {
+                Text("将以 \(amt.display) 出价，确认后不可撤销。")
+            } else {
+                Text("确认后将提交出价。")
+            }
         }
     }
 
@@ -499,7 +515,7 @@ struct LotDetailView: View {
                 } else {
                     VPrimaryButton(title: "已结束", disabled: true) {}
                 }
-            } else if lot.isLive {
+            } else if model.clientMayBid {
                 if isBanBid {
                     banBidBottomBar
                 } else {
@@ -526,7 +542,8 @@ struct LotDetailView: View {
                             ForEach(model.quickBids.prefix(2), id: \.self) { amt in
                                 Button {
                                     guard requireLogin() else { return }
-                                    Task { await model.placeBid(amt) }
+                                    pendingQuickBid = amt
+                                    showQuickBidConfirm = true
                                 } label: {
                                     VStack(spacing: 1) {
                                         Text(amt == lot.minNextBid ? "最低出价" : "加价").font(.vMicro).opacity(0.85)

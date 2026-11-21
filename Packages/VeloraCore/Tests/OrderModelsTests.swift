@@ -314,4 +314,41 @@ final class OrderModelsTests: XCTestCase {
         XCTAssertEqual(OrderFundStatus.held.buyerDisplayLabel, "已托管")
         XCTAssertNotEqual(OrderFundStatus.settled.buyerDisplayLabel, OrderCenterStatus.settled.displayLabel)
     }
+
+    func testCounterpartyLabelFixesUser0() {
+        XCTAssertEqual(OrderLogic.counterpartyLabel(nickname: "用户0", userId: 42), "用户42")
+        XCTAssertEqual(OrderLogic.counterpartyLabel(nickname: "", userId: 0), "—")
+        XCTAssertEqual(OrderLogic.counterpartyLabel(nickname: "阿铭", userId: 1), "阿铭")
+    }
+
+    func testResolvedSellerNetFenFallback() {
+        XCTAssertEqual(
+            OrderLogic.resolvedSellerNetFen(sellerNet: 0, displayAmount: 29_400, platformFee: nil, sellerCommission: 6_000),
+            23_400
+        )
+        XCTAssertEqual(
+            OrderLogic.resolvedSellerNetFen(sellerNet: 23_400, displayAmount: 29_400, platformFee: 6_000, sellerCommission: 6_000),
+            23_400
+        )
+    }
+
+    func testResolvedCreatedAtUsesTimeline() {
+        let placeholder = Date(timeIntervalSince1970: 0)
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let resolved = OrderLogic.resolvedCreatedAt(createdAt: placeholder, timelineDates: [t0], paidAt: nil)
+        XCTAssertEqual(resolved, t0)
+    }
+
+    func testBuyerShowsPayActionOnlyWithRemain() {
+        XCTAssertTrue(OrderLogic.buyerShowsPayAction(status: .pendingPayment, payRemainSeconds: 60))
+        XCTAssertFalse(OrderLogic.buyerShowsPayAction(status: .pendingPayment, payRemainSeconds: 0))
+        XCTAssertFalse(OrderLogic.buyerShowsPayAction(status: .cancelled, payRemainSeconds: 60))
+    }
+
+    func testCancelDetailLinesFixedTrade() {
+        let buyer = OrderLogic.cancelDetailLines(isSeller: false, tradeType: .fixed)
+        XCTAssertTrue(buyer.first?.contains("取消") == true)
+        let seller = OrderLogic.cancelDetailLines(isSeller: true, tradeType: .auction)
+        XCTAssertTrue(seller.first?.contains("拍品") == true)
+    }
 }

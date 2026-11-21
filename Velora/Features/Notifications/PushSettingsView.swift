@@ -136,10 +136,19 @@ struct PushSettingsView: View {
             if payload.items.isEmpty {
                 payload.items = Self.defaultMatrixSettings()
             }
+            payload.pushEvenWhenOnline = NotifyLogic.mergedPushEvenWhenOnline(
+                serverValue: payload.pushEvenWhenOnline,
+                cached: NotifyLogic.readCachedPushEvenWhenOnline()
+            )
+            NotifyLogic.writeCachedPushEvenWhenOnline(payload.pushEvenWhenOnline)
             state = .loaded
         } catch {
             // Soft-fail to matrix defaults so settings UI is usable offline / before server ships.
             payload = PushSettingsPayload(items: Self.defaultMatrixSettings())
+            payload.pushEvenWhenOnline = NotifyLogic.mergedPushEvenWhenOnline(
+                serverValue: nil,
+                cached: NotifyLogic.readCachedPushEvenWhenOnline()
+            )
             state = .loaded
             #if DEBUG
             print("[push-settings] load failed, using defaults: \(error)")
@@ -165,6 +174,7 @@ struct PushSettingsView: View {
                     pushEvenWhenOnline: payload.pushEvenWhenOnline
                 )
             )
+            NotifyLogic.writeCachedPushEvenWhenOnline(payload.pushEvenWhenOnline)
             Haptics.light()
         } catch let e as APIError {
             if NotifyErrorCode.normalize(e.code) == .tradeInboxCannotDisable {

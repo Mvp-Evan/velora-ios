@@ -98,9 +98,29 @@ final class LotDetailModel: ObservableObject {
     /// 快捷出价阶梯：最低加价 ×1 / ×2 / ×5
     var quickBids: [Money] {
         guard let lot else { return [] }
-        let base = lot.minNextBid
-        let inc = lot.bidIncrement
-        return [base, base + inc, base + inc * 4]
+        let amounts = BidIncrementUI.quickBidAmounts(
+            minNextBidFen: lot.minNextBid,
+            startPriceFen: lot.startPrice,
+            currentPriceFen: lot.currentPrice,
+            bidCount: lot.bidCount,
+            sellerBidIncrementFen: lot.bidIncrement
+        )
+        return amounts.map { $0 }
+    }
+
+    var effectiveBidIncrement: Money {
+        guard let lot else { return 0 }
+        return BidIncrementUI.effectiveIncrementFen(
+            startPriceFen: lot.startPrice,
+            currentPriceFen: lot.currentPrice,
+            bidCount: lot.bidCount,
+            sellerBidIncrementFen: lot.bidIncrement
+        )
+    }
+
+    var clientMayBid: Bool {
+        guard let lot else { return false }
+        return LotBidGate.canPlaceBid(lotStatus: lot.status.rawValue, endAt: lot.endAt, now: Date())
     }
 
     /// Price-card / sheet CTA label for proxy entry (design §5.6 / §9).
@@ -178,6 +198,11 @@ final class LotDetailModel: ObservableObject {
 
     func placeBid(_ amount: Money) async -> Bool {
         guard !bidding else { return false }
+        if let lot, !LotBidGate.canPlaceBid(lotStatus: lot.status.rawValue, endAt: lot.endAt, now: Date()) {
+            ToastCenter.shared.show("拍卖已结束", .info)
+            await load()
+            return false
+        }
         if !SessionStore.shared.accessFlags.canBid {
             ToastCenter.shared.show(banBidToastMessage, .info)
             return false
@@ -425,7 +450,18 @@ final class LotDetailModel: ObservableObject {
             }
             if let min = r.minNextBid { l.minNextBid = min }
             if let end = r.endAt { l.endAt = end }
+            if let me {
+                var bid = l.myBid
+                bid.hasBid = true
+                bid.maxAmount = max(amount, bid.maxAmount, l.currentPrice)
+                bid.leading = l.currentBidderId == me
+                l.myBid = bid
+            }
             lot = l
+            if OutbidPromptUX.shouldClear(isLeading: l.myBid.leading, ownBidJustPlaced: true) {
+                prompt = nil
+            }
+            NotificationCenter.default.post(name: .myBidsInvalidate, object: nil, userInfo: ["lotId": lotId])
             idempotency.clear()
             Haptics.success()
             if r.extended == true {
@@ -601,7 +637,25 @@ final class LotDetailModel: ObservableObject {
                 lot = l
             }
             bump()
-            if !mine, lot?.myBid.hasBid == true { prompt = .outbid(minNext: ev.int64("min_next_bid") ?? lot?.minNextBid ?? 0) }
+            if mine {
+                if OutbidPromptUX.shouldClear(isLeading: lot?.myBid.leading == true || lot?.currentBidderId == me, ownBidJustPlaced: true) {
+                    prompt = nil
+                }
+            } else if lot?.myBid.hasBid == true {
+                let leadingNow = lot?.myBid.leading == true || lot?.currentBidderId == me
+                if OutbidPromptUX.shouldClear(isLeading: leadingNow) {
+                    prompt = nil
+                } else {
+                    let next = ev.int64("min_next_bid") ?? lot?.minNextBid ?? 0
+                    let current: Int64? = {
+                        if case .outbid(let m)? = prompt { return m }
+                        return nil
+                    }()
+                    if OutbidPromptUX.shouldUpdate(currentMinNextFen: current, newMinNextFen: next) {
+                        prompt = .outbid(minNext: next)
+                    }
+                }
+            }
             // Proxy may have auto-followed; refresh confidential max / leading.
             if proxyBid?.status.canRaise == true {
                 Task { await loadProxyBid() }
@@ -644,10 +698,17 @@ final class LotDetailModel: ObservableObject {
             let sold = ev.string("status") == "ended"
             feed.insert(FeedItem(id: "end", kind: .ended(sold: sold), at: ev.at), at: 0)
             let winner = ev.int64("winner_id")
-            if sold, winner == me, let oid = ev.int64("order_id") {
+            if AuctionEndUX.isWinner(sold: sold, winnerId: winner, viewerId: me), let oid = ev.int64("order_id") {
                 if var l = lot { l.winnerId = me; l.orderId = oid; lot = l }
                 prompt = .won(orderId: oid)
-            } else if sold, lot?.myBid.hasBid == true { prompt = .lost }
+            } else if AuctionEndUX.shouldShowLostPrompt(
+                sold: sold,
+                winnerId: winner,
+                viewerId: me,
+                hadBid: lot?.myBid.hasBid == true
+            ) {
+                prompt = .lost
+            }
             else if !sold, isSeller { prompt = .unsold }
             Task { await load() }
         default: break

@@ -95,6 +95,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 }
 
 extension Notification.Name {
+    static let myBidsInvalidate = Notification.Name("velora.myBids.invalidate")
     static let balancePayDeepLink = Notification.Name("velora.balancePayDeepLink")
     /// Credit threshold interstitial (DES-v1.3-12-02 / D40) — userInfo: code, score?, action?
     static let veloraCreditBlock = Notification.Name("velora.creditBlock")
@@ -133,11 +134,42 @@ final class AppRouter: ObservableObject {
     @Published var messagesStackID = UUID()
     @Published var meMode: MeShellMode = .buyer
 
-    func open(lot id: Int64) { pendingLot = id }
+    /// Deferred order id after accepting an offer while listing sheet is still open (M033).
+    @Published var deferredOrderAfterListing: Int64?
+    /// Push MeCreditView from credit block CTA (M058).
+    @Published var showMeCredit = false
+
+    func open(lot id: Int64) {
+        // Same lot already in a sheet — keep the existing presentation (M027).
+        guard LotPresentationPolicy.shouldPresent(newId: id, currentId: pendingLot) else { return }
+        pendingLot = id
+    }
     func open(order id: Int64) { pendingOrder = id }
     func open(listing id: Int64, offerId: Int64? = nil) {
         pendingListingOfferId = offerId
         pendingListing = id
+    }
+
+    /// Accept-offer flow: dismiss listing first when needed, then present order.
+    func openOrderAfterListingIfNeeded(orderId: Int64) {
+        let plan = SheetChain.deferOrderUntilListingDismissed(
+            orderId: orderId,
+            listingPresented: pendingListing != nil
+        )
+        if plan.dismissListing {
+            deferredOrderAfterListing = plan.deferredOrderId
+            pendingListing = nil
+            pendingListingOfferId = nil
+        } else if let oid = plan.immediateOrderId {
+            pendingOrder = oid
+        }
+    }
+
+    func promoteDeferredOrderAfterListingDismiss() {
+        if let oid = SheetChain.promoteDeferredOrder(deferredOrderAfterListing) {
+            deferredOrderAfterListing = nil
+            pendingOrder = oid
+        }
     }
 
     func openBalancePay(_ link: BalancePayDeepLink) {
@@ -167,8 +199,9 @@ final class AppRouter: ObservableObject {
     }
 
     func openMeCredit() {
-        tab = .me
         creditBlock = nil
+        tab = .me
+        showMeCredit = true
     }
 
     func openKYCReturn() {

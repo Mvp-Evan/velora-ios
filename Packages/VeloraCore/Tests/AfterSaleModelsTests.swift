@@ -83,6 +83,15 @@ final class AfterSaleModelsTests: XCTestCase {
         XCTAssertFalse(AfterSaleLogic.appearanceWindowOpen(signedAt: nil, now: Date()))
     }
 
+    func testApplyTypeBannerChangesWithReason() {
+        XCTAssertTrue(AfterSaleLogic.applyTypeBanner(for: .notAsDescribed).contains("48"))
+        XCTAssertTrue(AfterSaleLogic.applyTypeBanner(for: .suspectedFake).contains("疑似假货"))
+        XCTAssertNotEqual(
+            AfterSaleLogic.applyTypeBanner(for: .notAsDescribed),
+            AfterSaleLogic.applyTypeBanner(for: .suspectedFake)
+        )
+    }
+
     func testSuspectedFakeAllowedAfterAppearanceWindow() {
         let signed = Date(timeIntervalSince1970: 1_700_000_000)
         let at49h = signed.addingTimeInterval(49 * 3600)

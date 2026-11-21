@@ -27,7 +27,7 @@ struct CreditBlockView: View {
                     VStack(spacing: 10) {
                         metric("当前信用分", info.score.map(String.init) ?? ReviewCreditConfigDefaults.metricEmpty)
                         metric("触发阈值", "\(info.threshold)")
-                        metric("错误码", info.code.rawValue)
+                        metric("受限动作", info.actionLabel.isEmpty ? ReviewCreditCopy.defaultBlockedAction : info.actionLabel)
                     }
                 }
                 .padding(.horizontal, VSpace.l)
@@ -43,7 +43,6 @@ struct CreditBlockView: View {
                 VStack(spacing: 10) {
                     VPrimaryButton(title: ReviewCreditCopy.creditTitle) {
                         onOpenCredit()
-                        onDismiss()
                     }
                     Button("知道了") { onDismiss() }
                         .font(.vBodyMedium)

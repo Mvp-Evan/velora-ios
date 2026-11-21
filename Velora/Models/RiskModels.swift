@@ -151,6 +151,7 @@ enum ReportReason: String, Codable, Sendable, CaseIterable, Equatable, Identifia
     }
 
     var requiresEvidenceHint: Bool { self == .induceOffline }
+    var requiresDetailText: Bool { self == .other }
 }
 
 /// `reports.status` (design §4).
@@ -703,6 +704,7 @@ struct CreateReportRequest: Equatable, Sendable {
     let evidenceUrls: [String]
     let orderId: Int64?
     let attachConversation: Bool
+    let detailText: String?
 
     init(
         targetType: ReportTargetType,
@@ -710,7 +712,8 @@ struct CreateReportRequest: Equatable, Sendable {
         reason: ReportReason,
         evidenceUrls: [String] = [],
         orderId: Int64? = nil,
-        attachConversation: Bool = false
+        attachConversation: Bool = false,
+        detailText: String? = nil
     ) {
         self.targetType = targetType
         self.targetId = targetId
@@ -718,6 +721,7 @@ struct CreateReportRequest: Equatable, Sendable {
         self.evidenceUrls = evidenceUrls
         self.orderId = orderId
         self.attachConversation = attachConversation
+        self.detailText = detailText
     }
 
     var body: [String: Any?] {
@@ -730,6 +734,7 @@ struct CreateReportRequest: Equatable, Sendable {
         ]
         if let orderId { dict["order_id"] = orderId }
         if attachConversation { dict["attach_conversation"] = true }
+        if let detailText, !detailText.isEmpty { dict["detail"] = detailText }
         return dict
     }
 }
@@ -854,6 +859,10 @@ enum RiskLogic {
         }
     }
 
+    static func normalizedReportDetail(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static func createReportGate(
         targetType: ReportTargetType,
         reason: ReportReason?,
@@ -864,11 +873,16 @@ enum RiskLogic {
         isRealNamed: Bool,
         accountFrozen: Bool,
         bountyRestricted: Bool = false,
-        isOrderBuyer: Bool = true
+        isOrderBuyer: Bool = true,
+        detailText: String? = nil
     ) -> RiskErrorCode? {
         guard isLoggedIn else { return .unauthenticated }
         if accountFrozen { return .accountFrozen }
-        guard reason != nil else { return nil }
+        guard let reason else { return nil }
+        if reason.requiresDetailText {
+            let detail = normalizedReportDetail(detailText ?? "")
+            if detail.count < 4 { return .evidenceRequired }
+        }
 
         if targetType.isBountyTarget {
             if bountyRestricted { return .bountyReporterRestricted }
@@ -892,7 +906,8 @@ enum RiskLogic {
         isRealNamed: Bool,
         accountFrozen: Bool,
         bountyRestricted: Bool = false,
-        isOrderBuyer: Bool = true
+        isOrderBuyer: Bool = true,
+        detailText: String? = nil
     ) -> Bool {
         guard reason != nil else { return false }
         if evidenceCount > RiskConfigDefaults.evidencePhotosMax { return false }
@@ -906,7 +921,8 @@ enum RiskLogic {
             isRealNamed: isRealNamed,
             accountFrozen: accountFrozen,
             bountyRestricted: bountyRestricted,
-            isOrderBuyer: isOrderBuyer
+            isOrderBuyer: isOrderBuyer,
+            detailText: detailText
         ) == nil
     }
 

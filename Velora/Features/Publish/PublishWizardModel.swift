@@ -109,10 +109,24 @@ final class PublishWizardModel: ObservableObject {
     }
 
     func reset() {
+        let cloudId = draft.cloudListingId
         draft = PublishDraftPayload(tradeType: tradeType)
         feeQuote = nil
         feeFailed = false
         UserDefaults.standard.removeObject(forKey: localKey)
+        if let cloudId {
+            Task {
+                try? await API.offShelfListing(cloudId, idempotencyKey: APIClient.shared.idempotencyKey())
+            }
+        }
+    }
+
+    var shouldPersistCloudDraft: Bool {
+        PublishDraftPolicy.shouldPersistCloudDraft(
+            title: draft.title,
+            photoCount: draft.productImages.count,
+            description: draft.description
+        )
     }
 
     // MARK: Cloud draft
@@ -241,10 +255,14 @@ final class PublishWizardModel: ObservableObject {
         let slice = Array(prepared.prefix(room))
         guard !slice.isEmpty else { return }
 
-        do {
-            let uploaded = try await API.uploadPublishImages(slice.map(\.0))
-            for (idx, up) in uploaded.enumerated() {
-                let sha = slice[idx].1
+        // Upload one-by-one so a single oversized body cannot 413 the whole batch.
+        var uploadedCount = 0
+        var lastError: Error?
+        for (idx, item) in slice.enumerated() {
+            compressProgress = "上传 \(idx + 1)/\(slice.count)"
+            do {
+                let uploaded = try await API.uploadPublishImages([item.0])
+                guard let up = uploaded.first else { continue }
                 let role: PublishImageRole
                 if asFlaw {
                     role = .flaw
@@ -254,22 +272,38 @@ final class PublishWizardModel: ObservableObject {
                 let slot = PublishImageSlot(
                     imageId: up.imageId,
                     url: up.url,
-                    sha256: sha,
-                    role: role
+                    sha256: item.1,
+                    role: role,
+                    localPreviewJPEG: item.0
                 )
                 if asFlaw {
-                    draft.flawImages.append(slot)
+                    var flaws = draft.flawImages
+                    flaws.append(slot)
+                    draft.flawImages = flaws
                 } else {
-                    draft.productImages.append(slot)
-                    if draft.productImages.count == 1 {
-                        draft.productImages[0].role = .cover
+                    var products = draft.productImages
+                    products.append(slot)
+                    if products.count == 1 {
+                        products[0].role = .cover
                     }
+                    draft.productImages = products
                 }
+                uploadedCount += 1
+            } catch {
+                lastError = error
             }
-            normalizeCover()
-            scheduleAutosave()
-        } catch {
-            ToastCenter.shared.error(error)
+        }
+        normalizeCover()
+        objectWillChange.send()
+        scheduleAutosave()
+        if uploadedCount == 0, let lastError {
+            if let api = lastError as? APIError, api.status == 413 {
+                ToastCenter.shared.show("图片过大，请重试或换一张较小的图", .error)
+            } else {
+                ToastCenter.shared.error(lastError)
+            }
+        } else if let lastError, uploadedCount < slice.count {
+            ToastCenter.shared.show("已上传 \(uploadedCount) 张，部分失败请重试", .error)
         }
     }
 
@@ -447,7 +481,8 @@ final class PublishWizardModel: ObservableObject {
             "ship_province": draft.shipProvince.isEmpty ? nil : draft.shipProvince,
             "ship_city": draft.shipCity.isEmpty ? nil : draft.shipCity,
             "cost_price": PublishDraftPayload.yuanToFen(draft.costPriceYuan),
-            "fee_quote_id": draft.feeQuoteId,
+            // Server expects numeric fee_quote_id (uint64).
+            "fee_quote_id": draft.feeQuoteId.flatMap { Int64($0) },
         ]
         if let status {
             map["status"] = status.rawValue

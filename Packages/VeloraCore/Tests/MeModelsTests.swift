@@ -392,4 +392,18 @@ final class MeModelsTests: XCTestCase {
         XCTAssertEqual(MeCopy.settingsTitle, "设置")
         XCTAssertEqual(MeCopy.licensesTitle, "资质公示")
     }
+
+    func testSellerTypeDisplayGoldProxy() {
+        XCTAssertEqual(MeSellerType.displayLabel(raw: "gold_proxy"), "专职代拍")
+        XCTAssertEqual(MeSellerType.normalize("gold_proxy"), .proxyAgent)
+    }
+
+    func testDedupBuyerEntryCodesAndFavoritesTitle() {
+        let codes = MeLogic.dedupBuyerEntryCodes([
+            "history", "browse_history", "fav", "favorites", "bids"
+        ])
+        XCTAssertEqual(codes, ["history", "fav", "bids"])
+        XCTAssertEqual(MeLogic.favoritesGridTitle(serverTitle: "我的关注"), "我收藏的")
+        XCTAssertEqual(MeLogic.favoritesGridTitle(serverTitle: nil), "我收藏的")
+    }
 }

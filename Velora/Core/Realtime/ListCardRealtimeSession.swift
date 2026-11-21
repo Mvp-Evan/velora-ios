@@ -19,6 +19,9 @@ final class ListCardRealtimeSession: ObservableObject {
     private var active = false
     private var lastScrollOffset: CGFloat = 0
     private var lastScrollAt: Date = .distantPast
+    private var lastEmittedScrollOffset: CGFloat?
+    private var lastVisibilityFrames: [Int64: CGRect] = [:]
+    private var lastVisibilityRatios: [Int64: Double] = [:]
     private var viewportHeight: CGFloat = 800
 
     init() {
@@ -109,6 +112,10 @@ final class ListCardRealtimeSession: ObservableObject {
     }
 
     func noteScroll(offset: CGFloat) {
+        guard LayoutChangeGate.shouldEmitScroll(previous: lastEmittedScrollOffset, next: offset) else {
+            return
+        }
+        lastEmittedScrollOffset = offset
         let now = Date()
         let dt = now.timeIntervalSince(lastScrollAt)
         if dt > 0, dt < 0.5, viewportHeight > 0 {
@@ -126,11 +133,24 @@ final class ListCardRealtimeSession: ObservableObject {
 
     func updateVisibility(lotId: Int64, ratio: Double) {
         guard active, lotId > 0 else { return }
+        let previous = lastVisibilityRatios[lotId]
+        guard LayoutChangeGate.shouldEmitRatio(previous: previous, next: ratio) else { return }
+        lastVisibilityRatios[lotId] = ratio
         engine.updateRatio(lotId: lotId, ratio: ratio)
         scheduleReconcile()
     }
 
+    /// Returns true when the geometry frame change is material enough to recompute visibility.
+    func shouldReportFrame(lotId: Int64, frame: CGRect) -> Bool {
+        let previous = lastVisibilityFrames[lotId]
+        guard LayoutChangeGate.shouldEmitFrame(previous: previous, next: frame) else { return false }
+        lastVisibilityFrames[lotId] = frame
+        return true
+    }
+
     func cardDidDisappear(lotId: Int64) {
+        lastVisibilityFrames.removeValue(forKey: lotId)
+        lastVisibilityRatios[lotId] = 0
         engine.updateRatio(lotId: lotId, ratio: 0)
         scheduleReconcile()
     }
@@ -250,6 +270,7 @@ final class ListCardRealtimeSession: ObservableObject {
 
 struct LotCardVisibilityModifier: ViewModifier {
     let lotId: Int64?
+    let shouldReportFrame: (Int64, CGRect) -> Bool
     let onRatio: (Int64, Double) -> Void
     let onDisappearLot: (Int64) -> Void
 
@@ -259,7 +280,11 @@ struct LotCardVisibilityModifier: ViewModifier {
                 GeometryReader { geo in
                     Color.clear
                         .onAppear { report(geo) }
-                        .onChange(of: geo.frame(in: .global)) { _, _ in report(geo) }
+                        .onChange(of: geo.frame(in: .global)) { _, newFrame in
+                            guard let lotId, lotId > 0 else { return }
+                            guard shouldReportFrame(lotId, newFrame) else { return }
+                            report(geo)
+                        }
                 }
             )
             .onDisappear {
@@ -285,10 +310,16 @@ struct LotCardVisibilityModifier: ViewModifier {
 extension View {
     func reportLotCardVisibility(
         lotId: Int64?,
+        shouldReportFrame: @escaping (Int64, CGRect) -> Bool = { _, _ in true },
         onRatio: @escaping (Int64, Double) -> Void,
         onDisappear: @escaping (Int64) -> Void = { _ in }
     ) -> some View {
-        modifier(LotCardVisibilityModifier(lotId: lotId, onRatio: onRatio, onDisappearLot: onDisappear))
+        modifier(LotCardVisibilityModifier(
+            lotId: lotId,
+            shouldReportFrame: shouldReportFrame,
+            onRatio: onRatio,
+            onDisappearLot: onDisappear
+        ))
     }
 }
 

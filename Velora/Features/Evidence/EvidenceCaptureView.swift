@@ -31,8 +31,10 @@ struct EvidenceCaptureView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: VSpace.l) {
                     header
-                    slotGrid
-                    if model.inspectRequired {
+                    if model.kindGroup == .ship {
+                        slotGrid
+                    }
+                    if model.inspectRequired || model.kindGroup == .unbox {
                         videoSection
                     }
                     if model.hashing {

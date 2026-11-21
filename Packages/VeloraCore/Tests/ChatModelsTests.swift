@@ -278,6 +278,15 @@ final class ChatModelsTests: XCTestCase {
         XCTAssertTrue(ChatLogic.listPreview(kind: .orderCard, content: "O1").hasPrefix("[订单]"))
     }
 
+    func testMergeOlderMessagesAndQuickReply() {
+        let t0 = Date(timeIntervalSince1970: 100)
+        let older = [ChatLogic.TimelineItem(id: 1, createdAt: t0)]
+        let existing = [ChatLogic.TimelineItem(id: 2, createdAt: t0.addingTimeInterval(10))]
+        let merged = ChatLogic.mergeOlderMessages(existing: existing, older: older)
+        XCTAssertEqual(merged.map(\.id), [1, 2])
+        XCTAssertEqual(ChatLogic.quickReplyPayload("  hello "), "hello")
+    }
+
     func testPushCollapseStateDecode() throws {
         let json = """
         {"conversation_id":5,"recipient_id":8,"last_push_at":"2026-11-05T09:00:00Z",

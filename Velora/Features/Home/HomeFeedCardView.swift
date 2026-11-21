@@ -46,7 +46,7 @@ struct HomeFeedCardView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 4) {
-                    if let condition = card.condition, !condition.isEmpty {
+                    if let condition = SearchListingLogic.conditionChip(card.condition) {
                         VTagChip(text: condition)
                     }
                     tradeTypeChip

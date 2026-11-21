@@ -436,7 +436,7 @@ struct Order: Codable, Identifiable, Hashable {
         case address, addressSnapshot, itemSnapshot, feeRuleSnapshot
         case shippingCarrier, trackingNo, shipmentNo, shipmentMemberCount
         case evidenceReady, insuredRequired, insured, insuredAmount
-        case timeline, createdAt
+        case timeline, createdAt, placedAt
         case lot, buyer, seller, role
         case title, cover
     }
@@ -459,7 +459,7 @@ struct Order: Codable, Identifiable, Hashable {
         buyerTotal = try c.decodeIfPresent(Money.self, forKey: .buyerTotal) ?? (amount ?? hammer)
         sellerCommission = try c.decodeIfPresent(Money.self, forKey: .sellerCommission) ?? 0
         platformFee = try c.decodeIfPresent(Money.self, forKey: .platformFee)
-        sellerNet = try c.decodeIfPresent(Money.self, forKey: .sellerNet) ?? 0
+        var decodedSellerNet = try c.decodeIfPresent(Money.self, forKey: .sellerNet) ?? 0
         depositApplied = try c.decodeIfPresent(Money.self, forKey: .depositApplied) ?? 0
         amountDue = try c.decodeIfPresent(Money.self, forKey: .amountDue) ?? 0
         refundedAmount = try c.decodeIfPresent(Money.self, forKey: .refundedAmount) ?? 0
@@ -515,10 +515,26 @@ struct Order: Codable, Identifiable, Hashable {
         insured = try c.decodeIfPresent(Bool.self, forKey: .insured)
         insuredAmount = try c.decodeIfPresent(Money.self, forKey: .insuredAmount)
         timeline = try c.decodeIfPresent([TimelineEvent].self, forKey: .timeline) ?? []
-        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt)
+            ?? c.decodeIfPresent(Date.self, forKey: .placedAt)
+            ?? .distantPast
+        if decodedSellerNet == 0 {
+            let gross = amount ?? hammer
+            let fee = platformFee ?? sellerCommission
+            decodedSellerNet = max(0, gross - fee)
+        }
+        sellerNet = decodedSellerNet
         lot = try c.decodeIfPresent(LotBrief.self, forKey: .lot)
-        buyer = try c.decodeIfPresent(User.self, forKey: .buyer) ?? User.placeholder(id: buyerId)
-        seller = try c.decodeIfPresent(User.self, forKey: .seller) ?? User.placeholder(id: sellerId)
+        var decodedBuyer = try c.decodeIfPresent(User.self, forKey: .buyer) ?? User.placeholder(id: buyerId)
+        var decodedSeller = try c.decodeIfPresent(User.self, forKey: .seller) ?? User.placeholder(id: sellerId)
+        if buyerId > 0, decodedBuyer.nickname.isEmpty || decodedBuyer.nickname == "用户0" {
+            decodedBuyer.nickname = OrderLogic.counterpartyLabel(nickname: decodedBuyer.nickname, userId: buyerId)
+        }
+        if sellerId > 0, decodedSeller.nickname.isEmpty || decodedSeller.nickname == "用户0" {
+            decodedSeller.nickname = OrderLogic.counterpartyLabel(nickname: decodedSeller.nickname, userId: sellerId)
+        }
+        buyer = decodedBuyer
+        seller = decodedSeller
         role = try c.decodeIfPresent(String.self, forKey: .role) ?? "buyer"
     }
 

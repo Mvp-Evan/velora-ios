@@ -1137,6 +1137,19 @@ enum AfterSaleLogic {
         return AfterSaleType.allCases
     }
 
+    static func applyTypeBanner(for type: AfterSaleType) -> String {
+        switch type {
+        case .notAsDescribed, .transitDamage:
+            return AfterSaleCopy.applyEmptyHint
+        case .suspectedFake:
+            return "签收后 \(AfterSaleConfigDefaults.suspectedFakeWindowDays) 天内可申请疑似假货"
+        case .notReceived:
+            return "未收到货请确认已超发货时限或物流异常"
+        case .other:
+            return "签收后 \(AfterSaleConfigDefaults.otherWindowDays) 天内可提交其他原因"
+        }
+    }
+
     // MARK: Negotiation / escalate (AFS-05 / AFS-06)
 
     static func canSellerRespond(status: AfterSaleCaseStatus) -> Bool {

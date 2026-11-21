@@ -235,6 +235,7 @@ final class PublishModelsTests: XCTestCase {
         d.incrementYuan = "10"
         d.durationDays = 3
         d.productImages = (0..<5).map { PublishImageSlot(sha256: "x\($0)") }
+        d.condition = "unpacked_mint"
         d.scale = "1:18"
         XCTAssertEqual(PublishValidator.validate(d, enabledScales: ["1:43"]), .scaleNotEnabled)
 
@@ -269,6 +270,24 @@ final class PublishModelsTests: XCTestCase {
         XCTAssertTrue(q.disclaimer.contains("成交当时费率"))
     }
 
+    func testDecodeFeeQuoteNumericId() throws {
+        let json = """
+        {
+          "fee_quote_id": 42,
+          "rate": 0.02,
+          "platform_fee": 200,
+          "seller_net": 9800,
+          "quote_hash": "h2",
+          "rule_version": "fee_rule:4",
+          "expires_at": "2026-11-21T05:35:20.491Z"
+        }
+        """.data(using: .utf8)!
+        let q = try decoder.decode(FeeQuoteEstimate.self, from: json)
+        XCTAssertEqual(q.feeQuoteId, "42")
+        XCTAssertEqual(q.feeQuoteIdNumber, 42)
+        XCTAssertEqual(q.platformFee, 200)
+    }
+
     func testPublishSubmitResultStatusCopy() {
         XCTAssertEqual(PublishListingStatus.pendingReview.submitSuccessCopy, "前 5 件需审核，通过后上架")
         let r = PublishSubmitResult(listingId: 9, lotId: 3, status: "pending_review", publishedSeq: 1)
@@ -279,5 +298,15 @@ final class PublishModelsTests: XCTestCase {
         XCTAssertFalse(PublishValidator.validateTitle("短"))
         XCTAssertTrue(PublishValidator.validateTitle("五个字标题啊"))
         XCTAssertFalse(PublishValidator.validateTitle(String(repeating: "字", count: 41)))
+    }
+
+    func testValidateRequiresConditionAndPriceMessage() {
+        var draft = PublishDraftPayload(tradeType: .fixed)
+        draft.title = "五个字标题测试"
+        draft.productImages = (0..<5).map { PublishImageSlot(url: "u\($0)") }
+        XCTAssertEqual(PublishValidator.validate(draft, enabledScales: ["1:43"]), .conditionRequired)
+        draft.condition = "unpacked_mint"
+        XCTAssertEqual(PublishValidator.validate(draft, enabledScales: ["1:43"]), .priceRequired)
+        draft.priceYuan = "100"
     }
 }

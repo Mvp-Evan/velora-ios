@@ -246,7 +246,13 @@ struct IncomeView: View {
         if page == nil { state = .loading }
         let p = period.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !p.isEmpty else {
+            page = nil
             state = .failed("请输入账期")
+            return
+        }
+        guard IncomeProfitLogic.isValidPeriod(p) else {
+            page = nil
+            state = .failed("账期格式应为 yyyy-MM")
             return
         }
         do {

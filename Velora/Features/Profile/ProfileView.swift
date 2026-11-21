@@ -166,14 +166,7 @@ struct ProfileView: View {
     }
 
     private func sellerTypeLabel(_ type: String) -> String {
-        switch type {
-        case "personal": return "个人卖家"
-        case "proxy_agent":
-            if let label = boot?.seller?.proxyBuyerBadgeLabel { return label }
-            return ProxyAgentCopy.goldBadge
-        case "brand": return "品牌官方"
-        default: return type
-        }
+        MeSellerType.displayLabel(raw: type, badgeLabel: boot?.seller?.proxyBuyerBadgeLabel)
     }
 }
 
@@ -182,9 +175,13 @@ struct ProfileView: View {
 struct MyLotsView: View {
     enum Kind { case mine, bids, follows }
     let kind: Kind
+    var navigationTitleOverride: String? = nil
     @State private var items: [Lot] = []
     @State private var state: LoadState = .idle
     @State private var status = "all"
+    @State private var page = 1
+    @State private var hasMore = true
+    @State private var loadingMore = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -222,35 +219,58 @@ struct MyLotsView: View {
                                         LotDetailView(lotId: lot.id, preload: lot)
                                     }
                                 } label: {
-                                    LotRow(lot: lot, trailing: kind == .bids && lot.myBid.hasBid ? "我出 \(lot.myBid.maxAmount.display)" : nil)
+                                    LotRow(
+                                        lot: lot,
+                                        trailing: kind == .bids && lot.myBid.hasBid
+                                            ? MyBidsProjection.trailingCopy(
+                                                leading: lot.myBid.leading,
+                                                maxAmountFen: lot.myBid.maxAmount,
+                                                formatYuan: { $0.display }
+                                            )
+                                            : nil
+                                    )
                                 }
                                 .buttonStyle(.plain)
+                                .onAppear {
+                                    if lot.id == items.last?.id, hasMore, !loadingMore {
+                                        Task { await loadMore() }
+                                    }
+                                }
                             }
+                            if loadingMore { ProgressView().padding() }
                         }
                         .padding(VSpace.l)
                     }
                 }
             }
-            .refreshable { await load() }
+            .refreshable { await load(reset: true) }
         }
         .background(Color.vBackground)
-        .navigationTitle(title)
+        .navigationTitle(navigationTitleOverride ?? title)
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
-        .onChange(of: status) { _, _ in Task { await load() } }
+        .task { await load(reset: true) }
+        .onChange(of: status) { _, _ in Task { await load(reset: true) } }
+        .onReceive(NotificationCenter.default.publisher(for: .myBidsInvalidate)) { _ in
+            guard kind == .bids else { return }
+            Task { await load(reset: true) }
+        }
     }
 
     private var title: String { switch kind { case .mine: return "我的拍品"; case .bids: return "我的出价"; case .follows: return "我的关注" } }
     private var emptyIcon: String { switch kind { case .mine: return "flag.checkered"; case .bids: return "hand.raised"; case .follows: return "heart" } }
     private var emptyTitle: String { switch kind { case .mine: return "还没有发布拍品"; case .bids: return "还没有出过价"; case .follows: return "还没有关注的拍品" } }
 
-    private func load() async {
-        if items.isEmpty { state = .loading }
+    private func load(reset: Bool = false) async {
+        if reset {
+            page = 1
+            hasMore = true
+            if items.isEmpty { state = .loading }
+        }
         do {
             switch kind {
             case .mine:
-                var lots = try await API.myLots(status: status).items
-                // Defend against server defaulting unknown status (e.g. unsold→live+scheduled).
+                let p = try await API.myLots(status: status, page: page)
+                var lots = p.items
                 switch status {
                 case "live": lots = lots.filter { $0.status == .live }
                 case "upcoming": lots = lots.filter { $0.status == .scheduled }
@@ -258,12 +278,27 @@ struct MyLotsView: View {
                 case "unsold": lots = lots.filter { $0.status == .unsold }
                 default: break
                 }
-                items = lots
-            case .bids: items = try await API.myBids().items
-            case .follows: items = try await API.myFollows().items
+                if reset || page == 1 { items = lots } else { items.append(contentsOf: lots) }
+                hasMore = p.hasMore
+            case .bids:
+                let p = try await API.myBids(page: page)
+                if reset || page == 1 { items = p.items } else { items.append(contentsOf: p.items) }
+                hasMore = p.hasMore
+            case .follows:
+                let p = try await API.myFollows(page: page)
+                if reset || page == 1 { items = p.items } else { items.append(contentsOf: p.items) }
+                hasMore = p.hasMore
             }
             state = .loaded
         } catch { state = .failed((error as? APIError)?.message ?? "加载失败") }
+    }
+
+    private func loadMore() async {
+        guard hasMore, !loadingMore, state == .loaded else { return }
+        loadingMore = true
+        defer { loadingMore = false }
+        page += 1
+        await load(reset: false)
     }
 }
 
@@ -275,6 +310,8 @@ struct MyListingsView: View {
     @State private var state: LoadState = .idle
     @State private var status = "on_sale"
     @State private var actingId: Int64?
+    @State private var pendingOffShelfId: Int64?
+    @State private var showOffShelfConfirm = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -309,7 +346,8 @@ struct MyListingsView: View {
                                     .buttonStyle(.plain)
                                     if status == "on_sale" {
                                         Button("下架") {
-                                            Task { await offShelf(card.listingId) }
+                                            pendingOffShelfId = card.listingId
+                                            showOffShelfConfirm = true
                                         }
                                         .font(.vCaptionMedium)
                                         .foregroundStyle(Color.vPrimary)
@@ -330,6 +368,16 @@ struct MyListingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
         .onChange(of: status) { _, _ in Task { await load() } }
+        .confirmationDialog("确认下架该商品？", isPresented: $showOffShelfConfirm, titleVisibility: .visible) {
+            Button("下架", role: .destructive) {
+                guard let id = pendingOffShelfId else { return }
+                pendingOffShelfId = nil
+                Task { await offShelf(id) }
+            }
+            Button("取消", role: .cancel) { pendingOffShelfId = nil }
+        } message: {
+            Text("下架后买家将无法继续购买。")
+        }
     }
 
     private var emptyTitle: String {

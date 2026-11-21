@@ -27,11 +27,15 @@ enum PublishImageProcessor {
         guard let jpeg = resized.jpegData(compressionQuality: CGFloat(PublishLimits.jpegQuality)) else {
             throw ProcessError.compressFailed
         }
-        // Soft second pass if still heavy
+        // Keep under recommended size so multi-image multipart stays within proxy limits.
         var out = jpeg
-        if out.count > PublishLimits.recommendedBytesAfterCompress {
-            if let tighter = resized.jpegData(compressionQuality: 0.72) {
+        var quality = PublishLimits.jpegQuality
+        while out.count > PublishLimits.recommendedBytesAfterCompress, quality > 0.45 {
+            quality -= 0.1
+            if let tighter = resized.jpegData(compressionQuality: CGFloat(quality)) {
                 out = tighter
+            } else {
+                break
             }
         }
         let sha = PublishImageNorms.sha256Hex(out)

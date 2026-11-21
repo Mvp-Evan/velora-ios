@@ -136,6 +136,12 @@ final class IncomeModelsTests: XCTestCase {
         XCTAssertTrue(IncomeProfitLogic.showsServiceFeeInvoiceEntry(launchGateOpen: true))
     }
 
+    func testPeriodValidation() {
+        XCTAssertTrue(IncomeProfitLogic.isValidPeriod("2025-11"))
+        XCTAssertFalse(IncomeProfitLogic.isValidPeriod("2025-13"))
+        XCTAssertFalse(IncomeProfitLogic.isValidPeriod("25-11"))
+    }
+
     // MARK: Decode
 
     func testDecodeIncomePage() throws {

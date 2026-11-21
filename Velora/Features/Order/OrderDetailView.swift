@@ -17,6 +17,7 @@ struct OrderDetailView: View {
     @State private var showUnboxEvidence = false
     @State private var unboxGuideShown = false
     @State private var showCancelUnshippedConfirm = false
+    @State private var showConfirmReceiptConfirm = false
     @State private var showAfterSaleApply = false
     @State private var showBountyReport = false
     @State private var showReviewSubmit = false
@@ -160,6 +161,18 @@ struct OrderDetailView: View {
                 Task { await model.cancelUnshipped() }
             }
             Button("再想想", role: .cancel) {}
+        }
+        .confirmationDialog(
+            ShipmentCopy.confirmTitle,
+            isPresented: $showConfirmReceiptConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(ShipmentCopy.confirmTitle) {
+                Task { await model.confirm() }
+            }
+            Button("再想想", role: .cancel) {}
+        } message: {
+            Text(ShipmentCopy.confirmHint)
         }
         .sheet(isPresented: $showAddressPicker) {
             AddressListView(selecting: true) { addr in
@@ -500,7 +513,13 @@ struct OrderDetailView: View {
                     let fee = o.platformFee ?? o.sellerCommission
                     VKeyValue(key: "平台服务费", value: "-\(fee.display)", valueColor: .vTextSecondary)
                     Rectangle().fill(Color.vSeparator).frame(height: 0.5)
-                    VKeyValue(key: (o.status == .completed || o.status == .settled) ? "已入账" : "预计入账", value: o.sellerNet.display, valueColor: .vPrimary, bold: true)
+                    let net = OrderLogic.resolvedSellerNetFen(
+                        sellerNet: o.sellerNet,
+                        displayAmount: o.displayAmount,
+                        platformFee: o.platformFee,
+                        sellerCommission: o.sellerCommission
+                    )
+                    VKeyValue(key: (o.status == .completed || o.status == .settled) ? "已入账" : "预计入账", value: net.display, valueColor: .vPrimary, bold: true)
                     if o.status == .completed || o.status == .settled {
                         VKeyValue(
                             key: "分账状态",
@@ -685,14 +704,20 @@ struct OrderDetailView: View {
                     Text(o.orderNo).font(.vMono(12, weight: .regular))
                     Button { UIPasteboard.general.string = o.orderNo; ToastCenter.shared.show("已复制", .success) } label: { Image(systemName: "doc.on.doc").font(.vCaption) }
                 }
-                VKeyValue(key: "创建时间", value: o.createdAt.fullText).font(.vCaption)
+                VKeyValue(
+                    key: "创建时间",
+                    value: OrderLogic.resolvedCreatedAt(createdAt: o.createdAt, timeline: o.timeline, paidAt: o.paidAt).fullText
+                ).font(.vCaption)
                 if let p = o.paidAt { VKeyValue(key: "付款时间", value: p.fullText).font(.vCaption) }
                 if let s = o.shippedAt { VKeyValue(key: "发货时间", value: s.fullText).font(.vCaption) }
                 if let c = o.completedAt { VKeyValue(key: "完成时间", value: c.fullText).font(.vCaption) }
                 HStack {
                     Text(o.isSeller ? "买家" : "卖家").font(.vCaption).foregroundStyle(Color.vTextSecondary); Spacer()
                     VAvatar(url: (o.isSeller ? o.buyer : o.seller).avatar, size: 20)
-                    Text((o.isSeller ? o.buyer : o.seller).nickname).font(.vCaption)
+                    Text(OrderLogic.counterpartyLabel(
+                        nickname: (o.isSeller ? o.buyer : o.seller).nickname,
+                        userId: o.isSeller ? o.buyerId : o.sellerId
+                    )).font(.vCaption)
                 }
                 if !model.payments.isEmpty {
                     Rectangle().fill(Color.vSeparator).frame(height: 0.5)
@@ -768,7 +793,7 @@ struct OrderDetailView: View {
                         loading: model.working,
                         disabled: paused
                     ) {
-                        Task { await model.confirm() }
+                        showConfirmReceiptConfirm = true
                     }
                 case .paid:
                     if canCancelUnshipped(o) {
@@ -841,9 +866,7 @@ struct OrderDetailView: View {
             return [o.isSeller ? "等待买家确认收货后货款入账" : "收到后请确认收货，货款将打给卖家"]
         case .completed, .settled: return [o.isSeller ? "货款已入账钱包" : "感谢您的信任，欢迎再次光临"]
         case .cancelled:
-            return o.isSeller
-                ? [AuctionSettlementCopy.defaultSellerTitle, AuctionSettlementCopy.defaultSellerDepositHint]
-                : [AuctionSettlementCopy.defaultBuyerHint, AuctionSettlementCopy.defaultCreditLine]
+            return OrderLogic.cancelDetailLines(isSeller: o.isSeller, tradeType: o.tradeType)
         case .refunded: return ["款项已原路退回"]
         }
     }
@@ -1066,17 +1089,20 @@ struct ShipSheet: View {
                             if order.needsInsurance {
                                 insuredOn = true
                                 if insuredAmountText.isEmpty {
-                                    insuredAmountText = "\(suggestedInsured)"
+                                    insuredAmountText = String(format: "%.2f", Double(suggestedInsured) / 100)
                                 }
                             }
                         }
                 }
                 if needsInsurance {
                     VDivider()
-                    VFormRow(title: "保价金额(分)") {
-                        TextField("\(ShipmentCopy.insuredSuggestedPrefix) \(suggestedInsured)", text: $insuredAmountText)
+                    VFormRow(title: "保价金额(元)") {
+                        TextField(
+                            "\(ShipmentCopy.insuredSuggestedPrefix) \(String(format: "%.2f", Double(suggestedInsured) / 100))",
+                            text: $insuredAmountText
+                        )
                             .font(.vMono(15))
-                            .keyboardType(.numberPad)
+                            .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                     }
                 }
@@ -1135,8 +1161,9 @@ struct ShipSheet: View {
         let trackingNo = ShipmentLogic.normalizeTrackingNo(tracking)
         let insuredAmount: Int64? = {
             guard needsInsurance else { return nil }
-            if let v = Int64(insuredAmountText.trimmingCharacters(in: .whitespacesAndNewlines)), v > 0 {
-                return v
+            let raw = insuredAmountText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let yuan = Double(raw.replacingOccurrences(of: ",", with: "")), yuan > 0 {
+                return Int64((yuan * 100).rounded())
             }
             return suggestedInsured
         }()

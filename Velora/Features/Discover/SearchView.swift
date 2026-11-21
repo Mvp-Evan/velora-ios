@@ -270,6 +270,7 @@ struct SearchView: View {
                             .buttonStyle(.plain)
                             .reportLotCardVisibility(
                                 lotId: card.tradeType == "auction" ? card.lotId : nil,
+                                shouldReportFrame: { id, frame in model.realtime.shouldReportFrame(lotId: id, frame: frame) },
                                 onRatio: { id, ratio in model.realtime.updateVisibility(lotId: id, ratio: ratio) },
                                 onDisappear: { id in model.realtime.cardDidDisappear(lotId: id) }
                             )
@@ -466,6 +467,7 @@ struct SearchView: View {
     private func clearFiltersKeepingKeyword() {
         let q = model.query.q
         let sold = resultTab == .sold
+        sort = .comprehensive
         model.query = ListingSearchQuery(q: q, sold: sold ? true : nil, sort: sort)
         model.onFilterChanged()
         Task { await model.load() }

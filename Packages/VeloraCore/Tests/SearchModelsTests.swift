@@ -186,6 +186,18 @@ final class SearchModelsTests: XCTestCase {
         XCTAssertEqual(SearchHistoryStore.parse(raw).filter { $0 == "k24" }.count, 1)
     }
 
+    func testClientPriceSortFallback() {
+        let cards = [
+            SearchListingCard(listingId: 1, tradeType: "auction", title: "A", cover: "", currentPrice: 20_000, price: 20_000),
+            SearchListingCard(listingId: 2, tradeType: "auction", title: "B", cover: "", currentPrice: 10_000, price: 10_000),
+        ]
+        let asc = SearchListingLogic.sorted(cards, sort: .priceAsc)
+        XCTAssertEqual(asc.map { $0.listingId }, [2, 1])
+        let desc = SearchListingLogic.sorted(cards, sort: .priceDesc)
+        XCTAssertEqual(desc.map { $0.listingId }, [1, 2])
+        XCTAssertEqual(SearchListingLogic.conditionChip("flawed"), "有瑕疵")
+    }
+
     func testSoldSnapshotEncodeRoundTrip() throws {
         let snap = SoldSnapshot(
             displayPrice: 88000,

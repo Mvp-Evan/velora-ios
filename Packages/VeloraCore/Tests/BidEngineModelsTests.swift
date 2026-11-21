@@ -247,4 +247,40 @@ final class BidEngineModelsTests: XCTestCase {
         )
         XCTAssertEqual(mid, 110_000)
     }
+
+    func testLotBidGateAndIncrementUI() {
+        let end = Date().addingTimeInterval(3600)
+        XCTAssertTrue(LotBidGate.canPlaceBid(lotStatus: "live", endAt: end, now: Date()))
+        XCTAssertFalse(LotBidGate.canPlaceBid(lotStatus: "live", endAt: Date().addingTimeInterval(-1), now: Date()))
+        XCTAssertFalse(LotBidGate.canPlaceBid(lotStatus: "ended", endAt: end, now: Date()))
+
+        let quick = BidIncrementUI.quickBidAmounts(
+            minNextBidFen: 105_000,
+            startPriceFen: 100_000,
+            currentPriceFen: 100_000,
+            bidCount: 1,
+            sellerBidIncrementFen: 5_000
+        )
+        XCTAssertEqual(quick, [105_000, 110_000, 125_000])
+
+        let patch = MyBidsProjection.patchAfterBid(
+            bidAmountFen: 110_000,
+            currentPriceFen: 110_000,
+            currentBidderId: 9,
+            viewerId: 9
+        )
+        XCTAssertTrue(patch.leading)
+        XCTAssertEqual(patch.maxAmountFen, 110_000)
+    }
+
+    func testAuctionEndAndOutbidUX() {
+        XCTAssertTrue(AuctionEndUX.isWinner(sold: true, winnerId: 3, viewerId: 3))
+        XCTAssertFalse(AuctionEndUX.shouldShowLostPrompt(sold: true, winnerId: 3, viewerId: 3, hadBid: true))
+        XCTAssertTrue(AuctionEndUX.shouldShowLostPrompt(sold: true, winnerId: 3, viewerId: 4, hadBid: true))
+        XCTAssertTrue(OutbidPromptUX.shouldUpdate(currentMinNextFen: 105_000, newMinNextFen: 110_000))
+        XCTAssertFalse(OutbidPromptUX.shouldUpdate(currentMinNextFen: 110_000, newMinNextFen: 110_000))
+        XCTAssertTrue(OutbidPromptUX.shouldClear(isLeading: true))
+        XCTAssertTrue(OutbidPromptUX.shouldClear(isLeading: false, ownBidJustPlaced: true))
+        XCTAssertFalse(OutbidPromptUX.shouldClear(isLeading: false, ownBidJustPlaced: false))
+    }
 }

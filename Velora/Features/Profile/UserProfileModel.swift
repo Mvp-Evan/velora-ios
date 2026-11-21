@@ -41,16 +41,34 @@ final class UserProfileModel: ObservableObject {
     }
 
     private func loadOnSaleIfNeeded() async {
-        guard onSaleLots.isEmpty else { return }
-        // Prefer embedded on_sale_items; fall back to lots by seller for entry points.
-        if let embedded = profile?.onSaleItems, !embedded.isEmpty { return }
-        if let page = try? await API.lots(API.LotQuery(status: "live", sellerId: userId, page: 1, pageSize: 20)) {
-            onSaleLots = page.items
-            if var p = profile, p.onSaleCount == nil {
-                p.onSaleCount = page.total
-                profile = p
+        guard var p = profile else { return }
+        if !p.onSaleItems.isEmpty { return }
+        var items: [ProfileOnSaleItem] = []
+        if let page = try? await API.listings(
+            ListingSearchQuery(tradeType: "fixed", status: "on_sale", sellerId: userId, page: 1, pageSize: 20)
+        ) {
+            items = page.items.map {
+                ProfileOnSaleItem(
+                    listingId: $0.listingId,
+                    title: $0.title,
+                    cover: $0.cover,
+                    price: $0.price ?? $0.currentPrice,
+                    tradeType: "fixed",
+                    status: "on_sale"
+                )
             }
         }
+        if items.isEmpty {
+            if let page = try? await API.lots(API.LotQuery(status: "live", sellerId: userId, page: 1, pageSize: 20)) {
+                onSaleLots = page.items
+                if p.onSaleCount == nil { p.onSaleCount = page.total }
+                profile = p
+            }
+            return
+        }
+        p.onSaleItems = items
+        if p.onSaleCount == nil { p.onSaleCount = items.count }
+        profile = p
     }
 
     func toggleFollow() async {

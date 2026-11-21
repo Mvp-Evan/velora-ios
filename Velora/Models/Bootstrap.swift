@@ -145,6 +145,10 @@ struct PublishAction: Codable, Equatable, Identifiable, Sendable {
     let enabled: Bool
     let requiresCapability: String?
 
+    enum CodingKeys: String, CodingKey {
+        case key, title, enabled, requiresCapability, ready, cap, hidden
+    }
+
     init(key: String, title: String, enabled: Bool, requiresCapability: String? = nil) {
         self.key = key
         self.title = title
@@ -156,8 +160,21 @@ struct PublishAction: Codable, Equatable, Identifiable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         key = try c.decode(String.self, forKey: .key)
         title = try c.decode(String.self, forKey: .title)
-        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
-        requiresCapability = try c.decodeIfPresent(String.self, forKey: .requiresCapability)
+        // Server NavEntry uses `ready`/`cap`; fixtures may use `enabled`/`requires_capability`.
+        let enabledRaw = try c.decodeIfPresent(Bool.self, forKey: .enabled)
+        let readyVal = try c.decodeIfPresent(Bool.self, forKey: .ready)
+        let hidden = try c.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
+        enabled = !hidden && (readyVal ?? enabledRaw ?? true)
+        requiresCapability = try c.decodeIfPresent(String.self, forKey: .cap)
+            ?? c.decodeIfPresent(String.self, forKey: .requiresCapability)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(key, forKey: .key)
+        try c.encode(title, forKey: .title)
+        try c.encode(enabled, forKey: .enabled)
+        try c.encodeIfPresent(requiresCapability, forKey: .requiresCapability)
     }
 }
 

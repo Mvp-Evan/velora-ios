@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import UIKit
 
 /// 发布向导：直购 / 拍卖共用字段 + 图片规范 + 云草稿（DES-v1.3-02-05）。
 struct PublishView: View {
@@ -18,6 +19,7 @@ struct PublishView: View {
     @State private var showSubMerchantGate = false
     @State private var showSubMerchantProgress = false
     @State private var showSellerDeposit = false
+    @State private var showClearDraftConfirm = false
 
     init(tradeType: PublishTradeType = .auction) {
         self.tradeType = tradeType
@@ -36,10 +38,26 @@ struct PublishView: View {
                 .onAppear { AppRouterProxy.router = router }
                 .task { await onAppearTask() }
                 .onChange(of: productPicker) { _, items in
-                    Task { await loadPicker(items, flaw: false); productPicker = [] }
+                    guard !items.isEmpty else { return }
+                    let captured = items
+                    productPicker = []
+                    Task { await loadPicker(captured, flaw: false) }
                 }
                 .onChange(of: flawPicker) { _, items in
-                    Task { await loadPicker(items, flaw: true); flawPicker = [] }
+                    guard !items.isEmpty else { return }
+                    let captured = items
+                    flawPicker = []
+                    Task { await loadPicker(captured, flaw: true) }
+                }
+                .confirmationDialog("清空草稿？", isPresented: $showClearDraftConfirm, titleVisibility: .visible) {
+                    Button("清空", role: .destructive) {
+                        model.reset()
+                        productPicker = []
+                        flawPicker = []
+                    }
+                    Button("取消", role: .cancel) {}
+                } message: {
+                    Text("将删除本地与云端草稿内容，此操作不可撤销。")
                 }
                 .modifier(PublishDraftChangeModifier(model: model))
                 .alert("发现云端草稿", isPresented: $model.showConflict) {
@@ -97,8 +115,13 @@ struct PublishView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
             Button("关闭") {
-                model.saveLocal()
-                Task { try? await model.saveCloudDraft() }
+                if model.shouldPersistCloudDraft {
+                    model.saveLocal()
+                    Task { try? await model.saveCloudDraft() }
+                } else {
+                    // Avoid leaving empty cloud drafts after clear (M042).
+                    model.reset()
+                }
                 dismiss()
             }
         }
@@ -106,9 +129,7 @@ struct PublishView: View {
             Menu {
                 Button("保存云草稿") { saveCloud() }
                 Button("清空", role: .destructive) {
-                    model.reset()
-                    productPicker = []
-                    flawPicker = []
+                    showClearDraftConfirm = true
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
@@ -201,7 +222,7 @@ struct PublishView: View {
             if let lotId = result.lotId {
                 router.open(lot: lotId)
             } else if result.listingId > 0 {
-                router.open(lot: result.listingId)
+                router.open(listing: result.listingId)
             }
         }
     }
@@ -508,40 +529,7 @@ private struct PublishAuctionSection: View {
                 PublishMoneyRow(title: "加价幅度", required: true, text: $model.draft.incrementYuan, hint: "¥", onChange: model.scheduleAutosave)
                 if showsFreeEndSchedule {
                     VDivider()
-                    VFormRow(title: "拍卖时长", required: true) {
-                        Spacer()
-                        if model.draft.useCustomEndAt {
-                            Text("指定结束").font(.vCaption).foregroundStyle(Color.vTextSecondary)
-                        } else {
-                            Picker("", selection: $model.draft.durationDays) {
-                                ForEach(PublishLimits.auctionDurationDays, id: \.self) { d in
-                                    Text("\(d) 天").tag(d)
-                                }
-                            }
-                            .tint(Color.vText)
-                            .onChange(of: model.draft.durationDays) { _, _ in model.scheduleAutosave() }
-                        }
-                    }
-                    VDivider()
-                    VFormRow(title: "结束方式") {
-                        Spacer()
-                        Toggle("指定时刻", isOn: $model.draft.useCustomEndAt).labelsHidden().tint(Color.vPrimary)
-                            .onChange(of: model.draft.useCustomEndAt) { _, _ in model.scheduleAutosave() }
-                    }
-                    if model.draft.useCustomEndAt {
-                        VDivider()
-                        DatePicker(
-                            "",
-                            selection: $model.draft.endAt,
-                            in: Date().addingTimeInterval(PublishLimits.minEndAfterPublishSeconds)...Date().addingTimeInterval(PublishLimits.personalMaxEndSeconds),
-                            displayedComponents: [.date, .hourAndMinute]
-                        )
-                        .datePickerStyle(.compact).labelsHidden()
-                        .environment(\.locale, Locale(identifier: "zh_CN"))
-                        .padding(.horizontal, VSpace.l).padding(.vertical, 10)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .onChange(of: model.draft.endAt) { _, _ in model.scheduleAutosave() }
-                    }
+                    PublishAuctionEndScheduleRows(model: model)
                 } else {
                     VDivider()
                     Text("专场拍品结束时间由运营排期，提交后等待排期通知")
@@ -571,6 +559,86 @@ private struct PublishAuctionSection: View {
                 }
             }
         }
+    }
+}
+
+/// 结束时间二选一：按天数（开拍起计）或指定绝对时刻，避免「时长 + 结束方式」并排误解。
+private struct PublishAuctionEndScheduleRows: View {
+    @ObservedObject var model: PublishWizardModel
+
+    private enum Mode: String, CaseIterable, Identifiable {
+        case duration
+        case custom
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .duration: return "按天数"
+            case .custom: return "指定时刻"
+            }
+        }
+    }
+
+    private var mode: Binding<Mode> {
+        Binding(
+            get: { model.draft.useCustomEndAt ? .custom : .duration },
+            set: { next in
+                model.draft.useCustomEndAt = (next == .custom)
+                model.scheduleAutosave()
+            }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpace.s) {
+            HStack(spacing: 2) {
+                Text("结束时间").font(.vBody).foregroundStyle(Color.vText)
+                Text("*").foregroundStyle(Color.vPrimary)
+            }
+
+            Picker("结束时间", selection: mode) {
+                ForEach(Mode.allCases) { m in
+                    Text(m.title).tag(m)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            if model.draft.useCustomEndAt {
+                HStack {
+                    Text("结束时刻").font(.vCaption).foregroundStyle(Color.vTextSecondary)
+                    Spacer()
+                    DatePicker(
+                        "",
+                        selection: $model.draft.endAt,
+                        in: Date().addingTimeInterval(PublishLimits.minEndAfterPublishSeconds)...Date().addingTimeInterval(PublishLimits.personalMaxEndSeconds),
+                        displayedComponents: [.date, .hourAndMinute]
+                    )
+                    .datePickerStyle(.compact)
+                    .labelsHidden()
+                    .environment(\.locale, Locale(identifier: "zh_CN"))
+                    .onChange(of: model.draft.endAt) { _, _ in model.scheduleAutosave() }
+                }
+                Text("须不早于发布后 24 小时，且不超过 14 天")
+                    .font(.vMicro)
+                    .foregroundStyle(Color.vTextTertiary)
+            } else {
+                HStack {
+                    Text("拍卖时长").font(.vCaption).foregroundStyle(Color.vTextSecondary)
+                    Spacer()
+                    Picker("", selection: $model.draft.durationDays) {
+                        ForEach(PublishLimits.auctionDurationDays, id: \.self) { d in
+                            Text("\(d) 天").tag(d)
+                        }
+                    }
+                    .tint(Color.vText)
+                    .onChange(of: model.draft.durationDays) { _, _ in model.scheduleAutosave() }
+                }
+                Text("从开拍时刻起计，与下方「开拍时间」联动")
+                    .font(.vMicro)
+                    .foregroundStyle(Color.vTextTertiary)
+            }
+        }
+        .padding(.horizontal, VSpace.l)
+        .padding(.vertical, 12)
     }
 }
 
@@ -681,29 +749,49 @@ private struct PublishImageCell: View {
     let cover: Bool
     let onRemove: () -> Void
 
+    private let tileHeight: CGFloat = 104
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            Group {
-                if let url = slot.url {
-                    RemoteImage(url).frame(height: 104)
-                } else {
-                    Color.vFill.frame(height: 104)
-                        .overlay(Image(systemName: "photo").foregroundStyle(Color.vTextTertiary))
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.m, style: .continuous))
+            Color.vFill
+                .overlay { thumbnailContent }
+                .frame(maxWidth: .infinity)
+                .frame(height: tileHeight)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.m, style: .continuous))
+
             Button(action: onRemove) {
                 Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
-                    .frame(width: 20, height: 20).background(.black.opacity(0.55), in: Circle())
+                    .frame(width: 22, height: 22).background(.black.opacity(0.55), in: Circle())
             }
+            .buttonStyle(.plain)
             .padding(5)
+            .zIndex(2)
+
             if cover {
                 Text("封面").font(.vMicro).foregroundStyle(.white)
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Color.vPrimary, in: Capsule())
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     .padding(5)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .allowsHitTesting(false)
             }
+        }
+        .frame(height: tileHeight)
+        .clipped()
+        .contentShape(RoundedRectangle(cornerRadius: VRadius.m, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var thumbnailContent: some View {
+        if let data = slot.localPreviewJPEG, let ui = UIImage(data: data) {
+            Image(uiImage: ui)
+                .resizable()
+                .scaledToFill()
+        } else if let url = slot.url {
+            RemoteImage(url)
+        } else {
+            Image(systemName: "photo").foregroundStyle(Color.vTextTertiary)
         }
     }
 }

@@ -12,12 +12,22 @@ struct MeShellView: View {
     private var boot: MeBootstrap? { session.bootstrap }
     private var buyerEntries: [MeEntry] {
         if let ov = meModel.overview, ov.resolvedView == .buyer, !ov.entries.isEmpty {
-            return ov.entries
-                .filter { MeEntryCode.normalize($0.code)?.isBuyerEntry != false }
-                .map { meEntry(from: $0) }
+            var seen = Set<MeEntryCode>()
+            return ov.entries.compactMap { raw -> MeEntry? in
+                guard let code = MeEntryCode.normalize(raw.code), code.isBuyerEntry else { return nil }
+                if seen.contains(code) { return nil }
+                seen.insert(code)
+                return meEntry(from: raw)
+            }
         }
         let e = boot?.navSchema.meBuyerEntries ?? []
-        return e.isEmpty ? NavSchema.v13Default.meBuyerEntries : e
+        let base = e.isEmpty ? NavSchema.v13Default.meBuyerEntries : e
+        let codes = MeLogic.dedupBuyerEntryCodes(base.map(\.key))
+        let byKey = Dictionary(uniqueKeysWithValues: base.map { ($0.key, $0) })
+        return codes.compactMap { code -> MeEntry? in
+            if let hit = byKey[code] { return hit }
+            return byKey.first(where: { MeEntryCode.normalize($0.key) == MeEntryCode.normalize(code) })?.value
+        }
     }
     private var sellerEntries: [MeEntry] {
         if let ov = meModel.overview, ov.resolvedView == .seller, !ov.entries.isEmpty {
@@ -272,7 +282,9 @@ struct MeShellView: View {
                 .buttonStyle(.plain)
                 .opacity(enabled ? 1 : 0.55)
         case "fav", "favorites", "favorite":
-            NavigationLink { MyLotsView(kind: .follows) } label: { entryLabel(entry) }
+            NavigationLink {
+                MyLotsView(kind: .follows, navigationTitleOverride: MeLogic.favoritesGridTitle(serverTitle: entry.title))
+            } label: { entryLabel(entry) }
                 .buttonStyle(.plain)
                 .opacity(enabled ? 1 : 0.55)
         case "bids", "my_bids":
@@ -542,20 +554,13 @@ struct MeShellView: View {
     private var buyerQuickLinks: some View {
         VCard(padding: 0) {
             VStack(spacing: 0) {
-                NavigationLink { BrowseHistoryView() } label: {
-                    VNavRow(icon: "clock", iconTint: .vBlue, title: MeCopy.historyTitle)
-                }
-                VDivider(inset: 58)
+                // History / favorites live in the entry grid — avoid duplicate rows (M065).
                 NavigationLink { OrderListView(role: "buyer") } label: {
                     VNavRow(icon: "shippingbox", iconTint: .vPrimary, title: OrderCenterCopy.centerTitle)
                 }
                 VDivider(inset: 58)
                 NavigationLink { MyLotsView(kind: .bids) } label: {
                     VNavRow(icon: "hand.raised", iconTint: .vPrimary, title: "我的出价")
-                }
-                VDivider(inset: 58)
-                NavigationLink { MyLotsView(kind: .follows) } label: {
-                    VNavRow(icon: "heart", iconTint: .vPrimary, title: "我的关注")
                 }
                 // DES-v1.3-12-04 / D42 Phase 3 — empty / coming-soon library shells
                 VDivider(inset: 58)
@@ -727,15 +732,10 @@ struct MeShellView: View {
     }
 
     private func sellerTypeLabel(_ type: String) -> String {
-        switch type {
-        case "personal": return "个人卖家"
-        case "proxy_agent":
-            // Prefer assessment_level when present (DES-v1.3-05-01 §14).
-            if let label = boot?.seller?.proxyBuyerBadgeLabel { return label }
-            return ProxyAgentCopy.goldBadge
-        case "brand": return "品牌官方"
-        default: return type
-        }
+        MeSellerType.displayLabel(
+            raw: type,
+            badgeLabel: boot?.seller?.proxyBuyerBadgeLabel
+        )
     }
 
     private var realNameLabel: String {

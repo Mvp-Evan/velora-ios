@@ -279,4 +279,34 @@ final class RiskModelsTests: XCTestCase {
             RiskLogic.isWeakIPOnly(edges: [("ip", 40), ("device", 80)])
         )
     }
+
+    func testReportOtherRequiresDetail() {
+        XCTAssertTrue(ReportReason.other.requiresDetailText)
+        XCTAssertNotNil(
+            RiskLogic.createReportGate(
+                targetType: .user,
+                reason: .other,
+                evidenceCount: 0,
+                attachConversation: false,
+                orderId: nil,
+                isLoggedIn: true,
+                isRealNamed: true,
+                accountFrozen: false,
+                detailText: "ab"
+            )
+        )
+        XCTAssertNil(
+            RiskLogic.createReportGate(
+                targetType: .user,
+                reason: .other,
+                evidenceCount: 0,
+                attachConversation: false,
+                orderId: nil,
+                isLoggedIn: true,
+                isRealNamed: true,
+                accountFrozen: false,
+                detailText: "详细说明内容"
+            )
+        )
+    }
 }

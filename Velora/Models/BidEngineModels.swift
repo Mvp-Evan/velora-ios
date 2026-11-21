@@ -383,3 +383,92 @@ enum BidAmountGrid {
         return aligned >= minNext ? aligned : nil
     }
 }
+
+enum LotBidGate {
+    static func canPlaceBid(lotStatus: String, endAt: Date, now: Date) -> Bool {
+        guard lotStatus.lowercased() == "live" else { return false }
+        return endAt > now
+    }
+}
+
+enum BidIncrementUI {
+    static func effectiveIncrementFen(
+        startPriceFen: Int64,
+        currentPriceFen: Int64,
+        bidCount: Int,
+        sellerBidIncrementFen: Int64,
+        tiers: [BidIncrementTier] = BidIncrementLadder.defaultTiers
+    ) -> Int64 {
+        let base = bidCount == 0 ? startPriceFen : currentPriceFen
+        return BidIncrementLadder.effectiveIncrement(
+            sellerBidIncrementFen: sellerBidIncrementFen,
+            currentPriceFen: base,
+            tiers: tiers
+        )
+    }
+
+    static func quickBidAmounts(
+        minNextBidFen: Int64,
+        startPriceFen: Int64,
+        currentPriceFen: Int64,
+        bidCount: Int,
+        sellerBidIncrementFen: Int64,
+        tiers: [BidIncrementTier] = BidIncrementLadder.defaultTiers
+    ) -> [Int64] {
+        let inc = effectiveIncrementFen(
+            startPriceFen: startPriceFen,
+            currentPriceFen: currentPriceFen,
+            bidCount: bidCount,
+            sellerBidIncrementFen: sellerBidIncrementFen,
+            tiers: tiers
+        )
+        return [minNextBidFen, minNextBidFen + inc, minNextBidFen + inc * 4]
+    }
+}
+
+enum MyBidsProjection {
+    struct RowPatch: Equatable {
+        let hasBid: Bool
+        let leading: Bool
+        let maxAmountFen: Int64
+    }
+
+    static func patchAfterBid(
+        bidAmountFen: Int64,
+        currentPriceFen: Int64,
+        currentBidderId: Int64?,
+        viewerId: Int64?
+    ) -> RowPatch {
+        let leading = viewerId != nil && currentBidderId == viewerId
+        return RowPatch(hasBid: true, leading: leading, maxAmountFen: max(bidAmountFen, currentPriceFen))
+    }
+
+    static func trailingCopy(leading: Bool, maxAmountFen: Int64, formatYuan: (Int64) -> String) -> String {
+        let amt = formatYuan(maxAmountFen)
+        if leading { return "领先 \(amt)" }
+        return "我出 \(amt) · 被超越"
+    }
+}
+
+enum AuctionEndUX {
+    static func isWinner(sold: Bool, winnerId: Int64?, viewerId: Int64?) -> Bool {
+        guard sold, let winnerId, let viewerId, viewerId > 0 else { return false }
+        return winnerId == viewerId
+    }
+
+    static func shouldShowLostPrompt(sold: Bool, winnerId: Int64?, viewerId: Int64?, hadBid: Bool) -> Bool {
+        guard sold, hadBid else { return false }
+        return !isWinner(sold: sold, winnerId: winnerId, viewerId: viewerId)
+    }
+}
+
+enum OutbidPromptUX {
+    static func shouldUpdate(currentMinNextFen: Int64?, newMinNextFen: Int64) -> Bool {
+        guard let currentMinNextFen else { return true }
+        return currentMinNextFen != newMinNextFen
+    }
+
+    static func shouldClear(isLeading: Bool, ownBidJustPlaced: Bool = false) -> Bool {
+        isLeading || ownBidJustPlaced
+    }
+}

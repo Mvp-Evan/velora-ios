@@ -418,4 +418,13 @@ final class NotificationModelsTests: XCTestCase {
         XCTAssertEqual(NotifyLogic.truncateTitle(long).count, 64)
         XCTAssertEqual(NotifyLogic.truncateBody(String(repeating: "b", count: 300)).count, 256)
     }
+
+    func testPushEvenWhenOnlineCacheMerge() {
+        let suite = "velora.ut.push"
+        let d = UserDefaults(suiteName: suite)!
+        d.removePersistentDomain(forName: suite)
+        NotifyLogic.writeCachedPushEvenWhenOnline(true, defaults: d)
+        XCTAssertEqual(NotifyLogic.mergedPushEvenWhenOnline(serverValue: nil, cached: NotifyLogic.readCachedPushEvenWhenOnline(defaults: d)), true)
+        XCTAssertEqual(NotifyLogic.mergedPushEvenWhenOnline(serverValue: false, cached: true), false)
+    }
 }

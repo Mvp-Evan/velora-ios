@@ -779,4 +779,25 @@ enum ChatLogic {
     static func validateImageSize(bytes: Int, maxMB: Int = ChatConfigDefaults.imageMaxMB) -> ChatErrorCode? {
         bytes > imageMaxBytes(maxMB: maxMB) ? .imageTooLarge : nil
     }
+
+    struct TimelineItem: Equatable {
+        let id: Int64
+        let createdAt: Date
+    }
+
+    static func mergeOlderMessages(existing: [TimelineItem], older: [TimelineItem]) -> [TimelineItem] {
+        guard !older.isEmpty else { return existing }
+        return (older + existing).sorted {
+            if $0.createdAt == $1.createdAt { return $0.id < $1.id }
+            return $0.createdAt < $1.createdAt
+        }
+    }
+
+    static func quickReplyPayload(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func markReadMessageId(messages: [TimelineItem]) -> Int64? {
+        messages.last?.id
+    }
 }

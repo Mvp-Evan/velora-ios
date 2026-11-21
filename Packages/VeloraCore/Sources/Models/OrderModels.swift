@@ -836,6 +836,68 @@ public enum OrderLogic {
         return t.isEmpty ? "商品" : t
     }
 
+    /// Counterparty label when embedded user nick is missing or generic `用户0`.
+    public static func counterpartyLabel(nickname: String, userId: Int64) -> String {
+        let trimmed = nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+        if userId <= 0, trimmed.isEmpty || trimmed == "用户0" { return "—" }
+        if trimmed.isEmpty || trimmed == "用户0" {
+            return "用户\(userId % 10_000)"
+        }
+        return trimmed
+    }
+
+    /// Prefer explicit `created_at`; fall back to earliest timeline event or payment time.
+    public static func resolvedCreatedAt(
+        createdAt: Date,
+        timelineDates: [Date],
+        paidAt: Date?
+    ) -> Date {
+        if createdAt.timeIntervalSince1970 > 946_684_800 { return createdAt }
+        if let earliest = timelineDates.min() { return earliest }
+        if let paidAt { return paidAt }
+        return createdAt
+    }
+
+    /// Compute seller net when API omitted `seller_net` (fen).
+    public static func resolvedSellerNetFen(
+        sellerNet: Int64,
+        displayAmount: Int64,
+        platformFee: Int64?,
+        sellerCommission: Int64
+    ) -> Int64 {
+        if sellerNet > 0 { return sellerNet }
+        let fee = platformFee ?? sellerCommission
+        return max(0, displayAmount - max(0, fee))
+    }
+
+    /// Buyer list row: show「去付款」only while payment window is open.
+    public static func buyerShowsPayAction(status: OrderCenterStatus, payRemainSeconds: Int) -> Bool {
+        status == .pendingPayment && payRemainSeconds > 0
+    }
+
+    /// Detail sub-copy for cancelled orders — trade-type aware (not auction-defaults).
+    public static func cancelDetailLines(
+        isSeller: Bool,
+        tradeType: OrderTradeType,
+        sellerCancelled: Bool = false
+    ) -> [String] {
+        switch tradeType {
+        case .fixed:
+            if isSeller {
+                return ["订单已关闭", sellerCancelled ? "你已取消此直购订单" : "买家未在规定时间内付款"]
+            }
+            return ["订单已取消", sellerCancelled ? "卖家已取消交易" : "未付款订单已自动关闭"]
+        case .presaleDeposit, .presaleBalance:
+            if isSeller { return ["订单已关闭", "预售订单已取消或未付定金"] }
+            return ["订单已取消", "预售订单已关闭"]
+        case .auction, .spot, .lottery:
+            if isSeller {
+                return ["拍品对应订单已取消", "保证金将按规则处理"]
+            }
+            return ["订单已取消", "拍卖订单已关闭"]
+        }
+    }
+
     public static func statusHeaderTitle(status: OrderCenterStatus, isSeller: Bool) -> String {
         if isSeller {
             switch status {

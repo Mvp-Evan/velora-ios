@@ -91,6 +91,7 @@ struct AuctionsView: View {
                             .buttonStyle(.plain)
                             .reportLotCardVisibility(
                                 lotId: segment == .ended ? nil : lot.id,
+                                shouldReportFrame: { id, frame in model.realtime.shouldReportFrame(lotId: id, frame: frame) },
                                 onRatio: { id, ratio in model.realtime.updateVisibility(lotId: id, ratio: ratio) },
                                 onDisappear: { id in model.realtime.cardDidDisappear(lotId: id) }
                             )

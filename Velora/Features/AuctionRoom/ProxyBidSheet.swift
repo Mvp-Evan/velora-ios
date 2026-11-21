@@ -12,6 +12,15 @@ struct ProxyBidSheet: View {
 
     private var amount: Money? { Double(yuan).map { Money(($0 * 100).rounded()) } }
 
+    private var ladderIncrement: Money {
+        BidIncrementUI.effectiveIncrementFen(
+            startPriceFen: lot.startPrice,
+            currentPriceFen: lot.currentPrice,
+            bidCount: lot.bidCount,
+            sellerBidIncrementFen: lot.bidIncrement
+        )
+    }
+
     private var alignedPreview: Int64? {
         guard let amount else { return nil }
         return BidAmountGrid.alignDown(
@@ -90,7 +99,7 @@ struct ProxyBidSheet: View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
                 Text(ProxyBidCopy.sheetTitle).font(.vTitle(20))
-                Text("当前 \(lot.displayPrice.display) · 最低 \(lot.minNextBid.display) · 每手 \(lot.bidIncrement.display)")
+                Text("当前 \(lot.displayPrice.display) · 最低 \(lot.minNextBid.display) · 每手 \(ladderIncrement.display)")
                     .font(.vCaption).foregroundStyle(Color.vTextSecondary)
             }
             Spacer()
@@ -165,14 +174,14 @@ struct ProxyBidSheet: View {
                 title: "默认 +\(ProxyBidSuggest.defaultStepsAboveMinNext) 档",
                 fen: ProxyBidSuggest.defaultMaxFen(
                     minNextBidFen: lot.minNextBid,
-                    incrementFen: lot.bidIncrement
+                    incrementFen: ladderIncrement
                 )
             )
             suggestChip(
                 title: ProxyBidCopy.plusTenSteps,
                 fen: ProxyBidSuggest.plusTenStepsFen(
                     currentPriceFen: lot.currentPrice,
-                    incrementFen: lot.bidIncrement
+                    incrementFen: ladderIncrement
                 )
             )
         }
@@ -260,7 +269,7 @@ struct ProxyBidSheet: View {
         } else {
             let suggested = ProxyBidSuggest.defaultMaxFen(
                 minNextBidFen: lot.minNextBid,
-                incrementFen: lot.bidIncrement
+                incrementFen: ladderIncrement
             )
             yuan = fmt(suggested)
             snapAmount()
@@ -286,7 +295,7 @@ struct ProxyBidSheet: View {
 
     private func step(_ dir: Int) {
         let base = alignedPreview ?? amount ?? lot.minNextBid
-        let next = max(lot.minNextBid, base + Money(dir) * lot.bidIncrement)
+        let next = max(lot.minNextBid, base + Money(dir) * ladderIncrement)
         yuan = fmt(next)
         snapAmount()
         Haptics.light()

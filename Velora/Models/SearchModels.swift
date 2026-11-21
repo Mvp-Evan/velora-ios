@@ -497,6 +497,26 @@ struct CreateSavedSearchRequest: Encodable {
     let notifyTypes: [SavedSearchNotifyType]
 }
 
+enum SearchListingLogic {
+    static func sorted(_ items: [SearchListingCard], sort: ListingSearchSort?) -> [SearchListingCard] {
+        guard let sort else { return items }
+        switch sort {
+        case .priceAsc:
+            return items.sorted { $0.displayPrice < $1.displayPrice }
+        case .priceDesc:
+            return items.sorted { $0.displayPrice > $1.displayPrice }
+        default:
+            return items
+        }
+    }
+
+    static func conditionChip(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+        let label = ListingConditionGrade.displayLabel(raw)
+        return label.isEmpty ? raw : label
+    }
+}
+
 enum SearchBusinessTimezone {
     static let identifier = "Asia/Shanghai"
 
