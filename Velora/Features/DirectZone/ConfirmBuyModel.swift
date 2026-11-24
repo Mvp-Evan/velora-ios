@@ -12,11 +12,15 @@ final class ConfirmBuyModel: ObservableObject {
     @Published var qty: Int = 1
     @Published var preview: FixedOrderPreview?
     @Published var state: LoadState = .idle
+    /// Business failure for confirm page (sold / self-trade / gate) — UI must not show「加载失败」.
+    @Published var failureCode: DirectZoneErrorCode?
     @Published var submitting = false
     @Published var needsLogin = false
     @Published var needsRealName = false
     @Published var createdOrderId: Int64?
     @Published var createdOrder: Order?
+    /// When preview/submit hits sold/pending, resolve buyer's order for「已购买」CTA.
+    @Published var purchasedOrderId: Int64?
 
     init(
         listingId: Int64,
@@ -43,9 +47,11 @@ final class ConfirmBuyModel: ObservableObject {
     }
 
     func bootstrap() async {
+        failureCode = nil
+        purchasedOrderId = nil
         if !SessionStore.shared.isLoggedIn {
             needsLogin = true
-            state = .failed(DirectZoneErrorCode.unauthorized.fallbackMessage)
+            fail(.unauthorized)
             return
         }
         if let gate = currentGate() {
@@ -125,11 +131,20 @@ final class ConfirmBuyModel: ObservableObject {
                 source: source,
                 expectedPriceFen: preview.unitPriceFen
             )
-            createdOrderId = result.orderId
-            // Cashier needs full Order; fetch after lock.
-            if let detail = try? await API.order(result.orderId) {
-                createdOrder = detail.order
+            // Fetch Order before publishing id so cashier sheet has a payload (avoid race dismiss).
+            var fetched: Order?
+            do {
+                fetched = try await API.order(result.orderId).order
+            } catch {
+                fetched = nil
             }
+            guard let order = fetched else {
+                ToastCenter.shared.show("订单已创建，打开订单详情继续支付", .info)
+                createdOrderId = result.orderId
+                return result
+            }
+            createdOrder = order
+            createdOrderId = result.orderId
             Haptics.success()
             return result
         } catch let e as APIError {
@@ -159,13 +174,20 @@ final class ConfirmBuyModel: ObservableObject {
         let rn = session.bootstrap?.me?.realNameStatus ?? session.user?.realNameStatus
         let realNameDone = rn == "verified" || rn == "passed"
         let credit = session.bootstrap?.me?.creditScore ?? session.user?.creditScore ?? 0
-        let restricted = session.accessFlags.isFrozen || session.accessFlags.isBanBid
+        let flags = session.accessFlags
+        // ban_bid blocks auction/lottery only (DES-v1.3-00 / server NeedCredit CreditPurchase).
+        let restricted = flags.isFrozen
         return DirectZoneLogic.purchaseGate(
             isLoggedIn: session.isLoggedIn,
             realNameDone: realNameDone,
             creditScore: credit,
             isRestricted: restricted
         )
+    }
+
+    private func fail(_ code: DirectZoneErrorCode, message: String? = nil) {
+        failureCode = code
+        state = .failed(message?.isEmpty == false ? message! : code.fallbackMessage)
     }
 
     private func applyGate(_ gate: DirectZoneErrorCode) {
@@ -177,7 +199,7 @@ final class ConfirmBuyModel: ObservableObject {
         default:
             break
         }
-        state = .failed(gate.fallbackMessage)
+        fail(gate)
         ToastCenter.shared.show(gate.fallbackMessage, .info)
     }
 
@@ -195,10 +217,27 @@ final class ConfirmBuyModel: ObservableObject {
             default:
                 break
             }
-            state = .failed(e.message.isEmpty ? code.fallbackMessage : e.message)
+            fail(code, message: e.message)
+            Task { await resolvePurchasedOrderIfNeeded(for: code) }
             return
         }
+        failureCode = nil
         state = .failed(e.message.isEmpty ? "费用加载失败" : e.message)
+    }
+
+    private func resolvePurchasedOrderIfNeeded(for code: DirectZoneErrorCode) async {
+        switch code {
+        case .listingSoldOut, .stockInsufficient, .listingHasPendingOrder:
+            break
+        default:
+            return
+        }
+        do {
+            let detail = try await API.listing(listingId)
+            purchasedOrderId = detail.myOrderId
+        } catch {
+            purchasedOrderId = nil
+        }
     }
 
     private func refreshPreviewIgnoringExpected() async {
@@ -237,9 +276,10 @@ final class ConfirmBuyModel: ObservableObject {
             case .priceChanged:
                 ToastCenter.shared.show(code.fallbackMessage, .info)
                 Task { await refreshPreviewIgnoringExpected() }
-            case .stockInsufficient, .listingSoldOut:
+            case .stockInsufficient, .listingSoldOut, .listingHasPendingOrder:
                 ToastCenter.shared.show(e.message.isEmpty ? code.fallbackMessage : e.message, .error)
-                state = .failed(code.fallbackMessage)
+                fail(code, message: e.message.isEmpty ? code.fallbackMessage : e.message)
+                Task { await resolvePurchasedOrderIfNeeded(for: code) }
             default:
                 ToastCenter.shared.show(e.message.isEmpty ? code.fallbackMessage : e.message, .error)
             }

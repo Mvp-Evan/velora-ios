@@ -23,6 +23,11 @@ struct PresaleDepositView: View {
             .background(Color.vBackground)
             .navigationTitle(PresaleCopy.pageTitle)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+            }
             .task { await model.load() }
             .onAppear { router.hideTabBar = true }
             .onDisappear { router.hideTabBar = false }

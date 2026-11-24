@@ -32,6 +32,11 @@ struct SpotReleaseDetailView: View {
         .background(Color.vBackground)
         .navigationTitle(SpotReleaseCopy.pageTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("关闭") { dismiss() }
+            }
+        }
         .task {
             await model.load()
         }

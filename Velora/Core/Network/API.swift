@@ -710,7 +710,8 @@ enum API {
             "address_id": addressId,
             "source": source.rawValue,
         ]
-        if let expectedPriceFen { body["expected_price_fen"] = expectedPriceFen }
+        // Server FixedOrderInput expects `expected_price` (fen), not `expected_price_fen`.
+        if let expectedPriceFen { body["expected_price"] = expectedPriceFen }
         return try await c.request(
             .POST,
             "listings/\(listingId)/orders",
@@ -797,9 +798,10 @@ enum API {
     }
 
     // MARK: Listing detail / Q&A / 补图 (DES-v1.3-02-04)
-    /// Anonymous OK. Buyer path must not expose `reserve_price` (DES §6 / ITEM-03).
+    /// Guest OK for public listings; send token when present so buyers can open
+    /// purchased sold items after `public_search` expires (DES-v1.3-02-04).
     static func listing(_ id: Int64) async throws -> ListingDetail {
-        try await c.request(.GET, "listings/\(id)", auth: false)
+        try await c.request(.GET, "listings/\(id)", auth: true)
     }
     /// Favorite writes `price_snapshot`; unfavorite does not reset price-drop cooldown (DIR-05).
     @discardableResult

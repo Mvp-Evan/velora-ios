@@ -31,8 +31,8 @@ struct ConfirmBuyView: View {
             switch model.state {
             case .idle, .loading:
                 VLoadingView()
-            case .failed(let msg) where model.preview == nil && model.address == nil:
-                VErrorView(message: msg) { Task { await model.bootstrap() } }
+            case .failed(let msg) where model.preview == nil:
+                confirmFailureBody(message: msg)
             default:
                 content
             }
@@ -75,13 +75,64 @@ struct ConfirmBuyView: View {
                 dismiss()
             }
         }
-        .onChange(of: model.createdOrderId) { _, id in
-            if id != nil, model.createdOrder != nil {
-                showCashier = true
-            } else if id != nil {
-                // Order fetch lagged — open order detail as fallback.
-                dismiss()
-            }
+        .onChange(of: model.createdOrder) { _, order in
+            // Wait for full Order before presenting cashier (createdOrderId alone races with fetch).
+            if order != nil { showCashier = true }
+        }
+    }
+
+    @ViewBuilder
+    private func confirmFailureBody(message: String) -> some View {
+        switch model.failureCode {
+        case .listingSoldOut, .stockInsufficient, .listingHasPendingOrder:
+            VEmptyState(
+                icon: "bag.fill",
+                title: DirectZoneCopy.soldOut,
+                message: message.isEmpty ? "该商品已售出或暂不可购，可在订单中查看" : message,
+                actionTitle: model.purchasedOrderId != nil ? "查看订单" : "关闭",
+                action: {
+                    if let orderId = model.purchasedOrderId {
+                        dismiss()
+                        router.open(order: orderId)
+                    } else {
+                        dismiss()
+                    }
+                }
+            )
+        case .selfTradeForbidden:
+            VEmptyState(
+                icon: "person.crop.circle.badge.exclamationmark",
+                title: "无法购买",
+                message: "这是你发布的商品，不能自己购买",
+                actionTitle: "关闭",
+                action: { dismiss() }
+            )
+        case .realNameRequired:
+            VEmptyState(
+                icon: "person.text.rectangle",
+                title: "需要实名认证",
+                message: message,
+                actionTitle: "去实名",
+                action: { model.needsRealName = true }
+            )
+        case .creditTooLow, .accountRestricted:
+            VEmptyState(
+                icon: "exclamationmark.shield",
+                title: "暂不可购买",
+                message: message,
+                actionTitle: "关闭",
+                action: { dismiss() }
+            )
+        case .unauthorized:
+            VEmptyState(
+                icon: "person.crop.circle",
+                title: "请先登录",
+                message: message,
+                actionTitle: "关闭",
+                action: { dismiss() }
+            )
+        default:
+            VErrorView(message: message) { Task { await model.bootstrap() } }
         }
     }
 
@@ -94,6 +145,11 @@ struct ConfirmBuyView: View {
                         goodsCard(preview)
                         feeCard(preview)
                         rulesCard(preview)
+                    } else if case .failed = model.state, model.failureCode != nil {
+                        confirmFailureBody(message: {
+                            if case .failed(let m) = model.state { return m }
+                            return ""
+                        }())
                     } else if model.address != nil {
                         ProgressView().frame(maxWidth: .infinity).padding()
                     } else {

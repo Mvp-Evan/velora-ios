@@ -6,6 +6,7 @@ struct LotteryEnrollView: View {
 
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var router: AppRouter
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var model: LotteryEnrollModel
     @ObservedObject private var ticker = Ticker.shared
     @State private var showAddressPicker = false
@@ -31,6 +32,11 @@ struct LotteryEnrollView: View {
         .background(Color.vBackground)
         .navigationTitle(LotteryCopy.pageTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("关闭") { dismiss() }
+            }
+        }
         .task { await model.load() }
         .onAppear { router.hideTabBar = true }
         .onDisappear { router.hideTabBar = false }
@@ -42,6 +48,10 @@ struct LotteryEnrollView: View {
         }
         .sheet(isPresented: $model.needsRealName) {
             NavigationStack { RealNameView() }
+                .onDisappear { Task { await model.refresh() } }
+        }
+        .sheet(isPresented: $model.needsCredit) {
+            NavigationStack { MeCreditView(presentedAsSheet: true) }
                 .onDisappear { Task { await model.refresh() } }
         }
         .sheet(isPresented: $model.needsDeposit) {
@@ -186,15 +196,15 @@ struct LotteryEnrollView: View {
                         Spacer()
                         if !item.done {
                             Button(item.step.actionTitle) {
-                                Task {
-                                    if item.step == .address {
-                                        showAddressPicker = true
-                                    } else {
-                                        await model.completeEligibility()
-                                    }
+                                if item.step == .address {
+                                    showAddressPicker = true
+                                } else {
+                                    model.openEligibilityStep(item.step)
                                 }
                             }
                             .font(.vCaption)
+                            .foregroundStyle(Color.vPrimary)
+                            .buttonStyle(.borderless)
                         }
                     }
                 }

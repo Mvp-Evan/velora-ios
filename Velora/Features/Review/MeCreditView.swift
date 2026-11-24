@@ -2,6 +2,9 @@ import SwiftUI
 
 /// Personal credit score + month plus + 90d logs (DES-v1.3-12-02 CRD-02 / §9).
 struct MeCreditView: View {
+    var presentedAsSheet = false
+
+    @Environment(\.dismiss) private var dismiss
     @State private var credit: MeCreditResponse?
     @State private var state: LoadState = .idle
 
@@ -21,6 +24,13 @@ struct MeCreditView: View {
         .background(Color.vBackground)
         .navigationTitle(ReviewCreditCopy.creditTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if presentedAsSheet {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
         .task { await load() }
         .refreshable { await load() }
     }

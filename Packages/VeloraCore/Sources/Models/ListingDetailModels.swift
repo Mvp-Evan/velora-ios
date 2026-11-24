@@ -381,6 +381,8 @@ public struct ListingDetail: Decodable, Equatable, Sendable, Identifiable {
     public let releaseStartsAt: Date?
     /// Spot / lottery / presale release id when `trade_type=release` (DES-v1.3-06-01).
     public let releaseId: Int64?
+    /// Buyer’s order on this listing when already purchased.
+    public let myOrderId: Int64?
     /// Seller-only extras (must stay absent on buyer paths — tested separately).
     public let reservePriceOwn: Int64?
     public let costPrice: Int64?
@@ -409,7 +411,10 @@ public struct ListingDetail: Decodable, Equatable, Sendable, Identifiable {
         conditionGrade == .flawed || !flawImageURLs.isEmpty || !(flawDesc ?? "").isEmpty
     }
 
-    public var canPurchase: Bool { !conditionIncomplete && stock > 0 && status != "sold" && status != "off_shelf" }
+    public var canPurchase: Bool {
+        myOrderId == nil && !conditionIncomplete && stock > 0 && status != "sold" && status != "off_shelf"
+    }
+    public var alreadyPurchased: Bool { myOrderId != nil }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -452,6 +457,7 @@ public struct ListingDetail: Decodable, Equatable, Sendable, Identifiable {
         releaseStatus = try c.decodeIfPresent(String.self, forKey: .releaseStatus)
         releaseStartsAt = try c.decodeIfPresent(Date.self, forKey: .releaseStartsAt)
         releaseId = try c.decodeIfPresent(Int64.self, forKey: .releaseId)
+        myOrderId = try c.decodeIfPresent(Int64.self, forKey: .myOrderId)
         reservePriceOwn = try c.decodeIfPresent(Int64.self, forKey: .reservePriceOwn)
         costPrice = try c.decodeIfPresent(Int64.self, forKey: .costPrice)
 
@@ -493,7 +499,7 @@ public struct ListingDetail: Decodable, Equatable, Sendable, Identifiable {
         case createdAt, updatedAt, flawDesc, flawImages, rulesSnapshot, questions, photoRequests
         case qaLocked, conditionIncomplete, viewers, favoriteCount, isFavorited, favorited
         case hasReserve, reserveMet, lotId, lot, releaseMode, releaseStatus, releaseStartsAt, releaseId
-        case reservePriceOwn, costPrice
+        case myOrderId, reservePriceOwn, costPrice
     }
 
     private struct NestedLot: Decodable {

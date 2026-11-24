@@ -52,7 +52,14 @@ final class AfterSaleDetailModel: ObservableObject {
             state = .loaded
         } catch {
             if afterSale == nil {
-                state = .failed((error as? APIError)?.message ?? "加载失败")
+                let api = error as? APIError
+                let msg = api?.message.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                // Gin/nginx plain 404 used to surface as empty「加载失败」when /current was missing.
+                if api?.status == 404 || api?.code == "not_found" {
+                    state = .failed(msg.isEmpty ? "暂无售后单" : msg)
+                } else {
+                    state = .failed(msg.isEmpty ? "加载失败" : msg)
+                }
             } else {
                 ToastCenter.shared.error(error)
             }

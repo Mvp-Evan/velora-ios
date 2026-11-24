@@ -283,7 +283,18 @@ struct ListingDetailView: View {
             .padding(.horizontal, VSpace.m)
             .padding(.top, 12)
             Spacer(minLength: 0)
-            VErrorView(message: message) { Task { await model.load() } }
+            if model.lastErrorCode == .listingNotPublic
+                || message == ListingDetailErrorCode.listingNotPublic.fallbackMessage {
+                VEmptyState(
+                    icon: "eye.slash",
+                    title: "暂不可查看",
+                    message: "该商品已结束公开展示。若你已购买，请到「我的 → 订单」中查看。",
+                    actionTitle: "返回",
+                    action: { dismiss() }
+                )
+            } else {
+                VErrorView(message: message) { Task { await model.load() } }
+            }
             Spacer(minLength: 0)
         }
     }
@@ -538,8 +549,13 @@ struct ListingDetailView: View {
 
             switch detail.template {
             case .direct:
-                if model.isSeller {
-                    sellerDirectBottomBar
+                // Buyer order wins over seller chrome — purchased reopen must show order CTA.
+                if let orderId = detail.myOrderId, !model.isSeller {
+                    VPrimaryButton(title: "查看订单") {
+                        router.open(order: orderId)
+                    }
+                } else if model.isSeller {
+                    sellerDirectBottomBar(detail)
                 } else if let card = activeOfferCard, !buyerOfferActions(for: card).isEmpty {
                     buyerOfferBottomBar(card)
                 } else if detail.canPurchase {
@@ -553,7 +569,7 @@ struct ListingDetailView: View {
                                 isLoggedIn: true,
                                 realNameDone: realNameDone,
                                 creditScore: credit,
-                                isRestricted: session.accessFlags.isFrozen || session.accessFlags.isBanBid,
+                                isRestricted: session.accessFlags.isFrozen,
                                 isOwner: detail.sellerId == session.user?.id,
                                 negotiable: detail.negotiable
                             ) {
@@ -607,7 +623,7 @@ struct ListingDetailView: View {
     }
 
     /// Floating accept / reject / counter (or waiting hint) for the listing owner.
-    @ViewBuilder private var sellerDirectBottomBar: some View {
+    @ViewBuilder private func sellerDirectBottomBar(_ detail: ListingDetail) -> some View {
         let actions = sellerOfferActions(for: activeOfferCard)
         if let card = activeOfferCard, !actions.isEmpty {
             HStack(spacing: 8) {
@@ -637,7 +653,8 @@ struct ListingDetailView: View {
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(Color.vFill, in: RoundedRectangle(cornerRadius: VRadius.m, style: .continuous))
         } else {
-            Text("你的在售商品")
+            let sold = detail.status == "sold" || detail.status == "ended"
+            Text(sold ? "已售出" : "你的在售商品")
                 .font(.vBodyMedium)
                 .foregroundStyle(Color.vTextSecondary)
                 .frame(maxWidth: .infinity, minHeight: 48)

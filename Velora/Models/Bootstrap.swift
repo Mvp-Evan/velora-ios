@@ -409,6 +409,7 @@ extension NavSchema {
             MeEntry(key: "profit", title: "利润", icon: "chart.line.uptrend.xyaxis"),
             MeEntry(key: "after_sale", title: "售后", icon: "wrench.and.screwdriver"),
             MeEntry(key: "seller_deposit", title: "卖家保证金", icon: "lock.shield"),
+            MeEntry(key: "tax_center", title: "税务中心", icon: "doc.text.magnifyingglass"),
             // DES-v1.3-05-01 / ME-04 — server may omit when seller_type ≠ proxy_agent
             MeEntry(key: "invoice", title: "开票", icon: "doc.text"),
             MeEntry(key: "proxy_kpi", title: "代拍考核", icon: "chart.bar"),

@@ -241,6 +241,25 @@ final class DirectZoneModelsTests: XCTestCase {
         let preview = try decoder.decode(FixedOrderPreview.self, from: previewJSON)
         XCTAssertEqual(preview.listingId, 7)
         XCTAssertFalse(preview.showsQtyStepper)
+
+        let serverPreviewJSON = """
+        {
+          "listing_id": 91,
+          "qty": 1,
+          "unit_price": 55900,
+          "shipping_fee": 0,
+          "amount": 55900,
+          "available_qty": 1,
+          "max_qty": 1,
+          "lock_minutes": 15,
+          "ship_hours": 72,
+          "title": "Demo server shape",
+          "address": { "address_id": 3 }
+        }
+        """.data(using: .utf8)!
+        let serverPreview = try decoder.decode(FixedOrderPreview.self, from: serverPreviewJSON)
+        XCTAssertEqual(serverPreview.unitPriceFen, 55900)
+        XCTAssertEqual(serverPreview.addressId, 3)
         XCTAssertEqual(
             DirectZoneLogic.computeAmountFen(
                 unitPriceFen: preview.unitPriceFen,

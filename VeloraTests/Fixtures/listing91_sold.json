@@ -1,0 +1,103 @@
+{
+  "id": 91,
+  "trade_type": "fixed",
+  "template": "fixed",
+  "block_order": [
+    "images",
+    "price",
+    "params",
+    "condition",
+    "description",
+    "seller",
+    "bids_or_sold",
+    "qa_photo",
+    "rules",
+    "bottom_bar"
+  ],
+  "title": "BBR 1:43 Ferrari 296 GTB 勒芒 2023 限量",
+  "brand": "BBR",
+  "series": "GT3 / GT",
+  "scale": "1:43",
+  "condition": "new_sealed",
+  "condition_label": "全新未拆",
+  "description": "BBR 1:43 Ferrari 296 GTB 勒芒 2023 限量。正品保证，支持当面验货，顺丰发货。\n\n盒况：原盒全套。",
+  "images": [
+    {
+      "id": 0,
+      "url": "https://picsum.photos/seed/velora-fixed17-a/900/1200",
+      "role": "cover",
+      "immutable": false,
+      "watermarked": false
+    },
+    {
+      "id": 0,
+      "url": "https://picsum.photos/seed/velora-fixed17-b/900/900",
+      "role": "gallery",
+      "immutable": false,
+      "watermarked": false
+    },
+    {
+      "id": 0,
+      "url": "https://picsum.photos/seed/velora-fixed17-c/900/1100",
+      "role": "gallery",
+      "immutable": false,
+      "watermarked": false
+    },
+    {
+      "id": 0,
+      "url": "https://picsum.photos/seed/velora-fixed17-d/1000/800",
+      "role": "gallery",
+      "immutable": false,
+      "watermarked": false
+    },
+    {
+      "id": 0,
+      "url": "https://picsum.photos/seed/velora-fixed17-e/800/1000",
+      "role": "gallery",
+      "immutable": false,
+      "watermarked": false
+    }
+  ],
+  "price": 55900,
+  "stock": 1,
+  "available_qty": 0,
+  "sold_count": 1,
+  "negotiable": true,
+  "purchasable": false,
+  "status": "sold",
+  "version": 5,
+  "rules_snapshot": {
+    "after_sale": "支持当面验货；48h 内品相不符可申请售后",
+    "pay_minutes": 15,
+    "ship_hours": 72
+  },
+  "seller": {
+    "id": 5,
+    "nickname": "Spark 迷弟",
+    "avatar": "https://api.dicebear.com/9.x/thumbs/png?seed=velora5",
+    "bio": "新入坑，多多关照",
+    "location": "杭州",
+    "credit_score": 106,
+    "sold_count": 2,
+    "won_count": 1,
+    "lot_count": 5,
+    "created_at": "2026-11-21T11:59:59.344286+08:00",
+    "seller_type": "personal",
+    "badge": "个人"
+  },
+  "seller_id": 5,
+  "has_reserve": false,
+  "reserve_met": false,
+  "qa_locked": true,
+  "qa_locked_at": "2026-11-22T14:51:23.112315+08:00",
+  "condition_ok": true,
+  "purchase_blocked": false,
+  "favorite_count": 11,
+  "questions": [],
+  "question_total": 0,
+  "photo_requests": [],
+  "created_at": "2026-11-21T12:00:01.426282+08:00",
+  "updated_at": "2026-11-22T14:51:23.112336+08:00",
+  "sold_at": "2026-11-22T14:51:23.110563+08:00",
+  "sold_price_public": 55900
+}

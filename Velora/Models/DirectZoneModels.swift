@@ -783,17 +783,19 @@ struct FixedOrderPreview: Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case listingId, qty, unitPriceFen, shippingFeeFen, amountFen
+        case unitPrice, shippingFee, amount, goodsAmount
         case availableQty, maxQty, lockMinutes, shipHours
-        case title, cover, condition, sellerId, sellerName, sellerType, addressId, serverTime
+        case title, cover, condition, sellerId, sellerName, sellerType, addressId, address, serverTime
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         listingId = try Self.decodeID(c, .listingId)
         qty = try c.decode(Int.self, forKey: .qty)
-        unitPriceFen = try c.decode(Int64.self, forKey: .unitPriceFen)
-        shippingFeeFen = try c.decode(Int64.self, forKey: .shippingFeeFen)
-        amountFen = try c.decode(Int64.self, forKey: .amountFen)
+        // Server DIR-02 uses unit_price/shipping_fee/amount (fen); design docs also allow *_fen.
+        unitPriceFen = try Self.decodeFen(c, preferred: .unitPriceFen, fallback: .unitPrice)
+        shippingFeeFen = try Self.decodeFen(c, preferred: .shippingFeeFen, fallback: .shippingFee)
+        amountFen = try Self.decodeFen(c, preferred: .amountFen, fallback: .amount)
         availableQty = try c.decode(Int.self, forKey: .availableQty)
         maxQty = try c.decode(Int.self, forKey: .maxQty)
         lockMinutes = try c.decodeIfPresent(Int.self, forKey: .lockMinutes) ?? DirectZoneConfigDefaults.lockMinutes
@@ -804,11 +806,57 @@ struct FixedOrderPreview: Codable, Equatable, Sendable {
         sellerId = try? Self.decodeID(c, .sellerId)
         sellerName = try c.decodeIfPresent(String.self, forKey: .sellerName)
         sellerType = try c.decodeIfPresent(DirectZoneSellerType.self, forKey: .sellerType)
-        addressId = try? Self.decodeID(c, .addressId)
+        if let nested = try? c.nestedContainer(keyedBy: AddressKeys.self, forKey: .address),
+           let aid = try? Self.decodeNestedID(nested, .addressId) {
+            addressId = aid
+        } else {
+            addressId = try? Self.decodeID(c, .addressId)
+        }
         serverTime = try c.decodeIfPresent(Date.self, forKey: .serverTime)
     }
 
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(listingId, forKey: .listingId)
+        try c.encode(qty, forKey: .qty)
+        try c.encode(unitPriceFen, forKey: .unitPriceFen)
+        try c.encode(shippingFeeFen, forKey: .shippingFeeFen)
+        try c.encode(amountFen, forKey: .amountFen)
+        try c.encode(availableQty, forKey: .availableQty)
+        try c.encode(maxQty, forKey: .maxQty)
+        try c.encode(lockMinutes, forKey: .lockMinutes)
+        try c.encode(shipHours, forKey: .shipHours)
+        try c.encodeIfPresent(title, forKey: .title)
+        try c.encodeIfPresent(cover, forKey: .cover)
+        try c.encodeIfPresent(condition, forKey: .condition)
+        try c.encodeIfPresent(sellerId, forKey: .sellerId)
+        try c.encodeIfPresent(sellerName, forKey: .sellerName)
+        try c.encodeIfPresent(sellerType, forKey: .sellerType)
+        try c.encodeIfPresent(addressId, forKey: .addressId)
+        try c.encodeIfPresent(serverTime, forKey: .serverTime)
+    }
+
+    private enum AddressKeys: String, CodingKey { case addressId }
+
+    private static func decodeFen(
+        _ c: KeyedDecodingContainer<CodingKeys>,
+        preferred: CodingKeys,
+        fallback: CodingKeys
+    ) throws -> Int64 {
+        if let v = try? c.decode(Int64.self, forKey: preferred) { return v }
+        if let v = try? c.decode(Int64.self, forKey: fallback) { return v }
+        if let s = try? c.decode(String.self, forKey: preferred), let v = Int64(s) { return v }
+        if let s = try? c.decode(String.self, forKey: fallback), let v = Int64(s) { return v }
+        throw DecodingError.dataCorruptedError(forKey: preferred, in: c, debugDescription: "expected fen amount")
+    }
+
     private static func decodeID(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) throws -> Int64 {
+        if let v = try? c.decode(Int64.self, forKey: key) { return v }
+        if let s = try? c.decode(String.self, forKey: key), let v = Int64(s) { return v }
+        throw DecodingError.dataCorruptedError(forKey: key, in: c, debugDescription: "expected id")
+    }
+
+    private static func decodeNestedID(_ c: KeyedDecodingContainer<AddressKeys>, _ key: AddressKeys) throws -> Int64 {
         if let v = try? c.decode(Int64.self, forKey: key) { return v }
         if let s = try? c.decode(String.self, forKey: key), let v = Int64(s) { return v }
         throw DecodingError.dataCorruptedError(forKey: key, in: c, debugDescription: "expected id")

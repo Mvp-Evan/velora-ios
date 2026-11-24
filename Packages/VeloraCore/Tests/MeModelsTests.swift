@@ -79,12 +79,18 @@ final class MeModelsTests: XCTestCase {
         }
 
         let personal: [MeEntryCode] = [
-            .onsale, .auctions, .sold, .wallet, .income, .afterSaleSell, .sellerDeposit,
+            .onsale, .auctions, .sold, .wallet, .income, .afterSaleSell, .sellerDeposit, .taxCenter,
         ]
-        XCTAssertEqual(personal.count, 7)
+        XCTAssertEqual(personal.count, 8)
         for code in personal {
             XCTAssertTrue(MeLogic.entryVisible(code: code, view: .seller, sellerType: .personal, showPhase2Entries: false))
         }
+        XCTAssertEqual(MeEntryCode.normalize("tax_center"), .taxCenter)
+        XCTAssertEqual(MeEntryCode.taxCenter.defaultTitle, "税务中心")
+        let withTax = MeLogic.ensuringTaxCenterOverviewEntry([])
+        XCTAssertEqual(withTax.count, 1)
+        XCTAssertEqual(withTax.first?.code, "tax_center")
+        XCTAssertEqual(MeLogic.ensuringTaxCenterOverviewEntry(withTax).count, 1)
 
         XCTAssertTrue(MeLogic.shouldRenderEntry(code: .invoice, sellerType: .proxyAgent, showPhase2Entries: false))
         XCTAssertFalse(MeLogic.shouldRenderEntry(code: .invoice, sellerType: .personal, showPhase2Entries: false))

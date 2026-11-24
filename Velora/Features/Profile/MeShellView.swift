@@ -32,7 +32,7 @@ struct MeShellView: View {
     private var sellerEntries: [MeEntry] {
         if let ov = meModel.overview, ov.resolvedView == .seller, !ov.entries.isEmpty {
             let sellerType = MeSellerType.normalize(ov.sellerType) ?? MeSellerType.normalize(boot?.seller?.sellerType)
-            return ov.entries
+            let fromOverview = ov.entries
                 .filter { entry in
                     guard let code = MeEntryCode.normalize(entry.code) else { return true }
                     return MeLogic.shouldRenderEntry(
@@ -42,6 +42,8 @@ struct MeShellView: View {
                     ) && !code.isBuyerEntry
                 }
                 .map { meEntry(from: $0) }
+            // Remote overview may lag; keep 税务中心 until server ships tax_center.
+            return MeLogic.ensuringTaxCenterEntry(fromOverview)
         }
         let e = boot?.navSchema.meSellerEntries ?? []
         let base = e.isEmpty ? NavSchema.v13Default.meSellerEntries : e
@@ -55,7 +57,7 @@ struct MeShellView: View {
         let canStore = caps?.canStore == true
         let canPresale = caps?.canPresale == true
         let canRelease = (caps?.canSpotRelease == true) || (caps?.canLottery == true) || (caps?.canPresale == true)
-        return base.filter { entry in
+        let filtered = base.filter { entry in
             switch entry.key {
             case ProxyAgentConfigDefaults.meEntryKPI, ProxyAgentConfigDefaults.meEntryInvoice, "invoice", "proxy_kpi":
                 return isProxy
@@ -71,6 +73,7 @@ struct MeShellView: View {
                 return true
             }
         }
+        return MeLogic.ensuringTaxCenterEntry(filtered)
     }
 
     var body: some View {
@@ -131,6 +134,10 @@ struct MeShellView: View {
             guard !suppressingModeWrite else { return }
             Task { await handleModeChange(newMode) }
         }
+        .onChange(of: router.showSellerOnboarding) { wasShowing, isShowing in
+            guard wasShowing, !isShowing else { return }
+            Task { await adoptSellerViewIfReady() }
+        }
     }
 
     private func meEntry(from ov: MeOverviewEntry) -> MeEntry {
@@ -165,12 +172,32 @@ struct MeShellView: View {
             suppressingModeWrite = true
             router.meMode = .buyer
             suppressingModeWrite = false
-            ToastCenter.shared.show(MeErrorCode.sellerRequired.fallbackMessage, .info)
+            // Guide into the 4-step funnel instead of toast-only (DES-v1.3-12-01 §7).
+            // Prefer flag over openSellerOnboarding() to avoid meMode=.seller re-entry loop.
+            router.showSellerOnboarding = true
         case .failed:
             suppressingModeWrite = true
             router.meMode = previous
             suppressingModeWrite = false
             ToastCenter.shared.show(MeCopy.viewSwitchFailed, .error)
+        }
+    }
+
+    /// After onboarding sheet dismisses, land on seller view if a profile now exists.
+    private func adoptSellerViewIfReady() async {
+        guard session.isLoggedIn else { return }
+        if session.bootstrap?.seller == nil {
+            await session.refreshBootstrap()
+        }
+        guard session.bootstrap?.seller != nil || meModel.overview?.sellerType != nil else { return }
+        switch await meModel.switchView(.seller) {
+        case .ok(let confirmed) where confirmed == .seller:
+            suppressingModeWrite = true
+            router.meMode = .seller
+            suppressingModeWrite = false
+            await meModel.refresh()
+        default:
+            break
         }
     }
 
@@ -452,6 +479,14 @@ struct MeShellView: View {
         case "profit", "income", IncomeConfigDefaults.meEntryKey:
             NavigationLink {
                 IncomeView()
+            } label: {
+                entryLabel(entry)
+            }
+            .buttonStyle(.plain)
+            .opacity(enabled ? 1 : 0.55)
+        case "tax_center", "tax":
+            NavigationLink {
+                TaxCenterView()
             } label: {
                 entryLabel(entry)
             }

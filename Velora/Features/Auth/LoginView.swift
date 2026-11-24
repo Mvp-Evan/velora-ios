@@ -98,7 +98,7 @@ struct LoginView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                         #if DEBUG
-                        Text("开发环境：验证码固定为 123456，可用 13800000001–10 登录种子账号")
+                        Text("请查收短信验证码；仅本地未接阿里云时可用固定码 123456 联调种子号")
                             .font(.vMicro).foregroundStyle(Color.vTextTertiary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         #endif

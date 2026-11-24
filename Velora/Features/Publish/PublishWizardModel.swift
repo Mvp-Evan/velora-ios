@@ -302,7 +302,7 @@ final class PublishWizardModel: ObservableObject {
             } else {
                 ToastCenter.shared.error(lastError)
             }
-        } else if let lastError, uploadedCount < slice.count {
+        } else if lastError != nil, uploadedCount < slice.count {
             ToastCenter.shared.show("已上传 \(uploadedCount) 张，部分失败请重试", .error)
         }
     }

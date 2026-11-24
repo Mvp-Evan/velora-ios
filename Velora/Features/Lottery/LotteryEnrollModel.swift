@@ -14,6 +14,8 @@ final class LotteryEnrollModel: ObservableObject {
     @Published var needsLogin = false
     @Published var needsRealName = false
     @Published var needsDeposit = false
+    /// Open MeCreditView from this sheet (root credit sheet cannot stack over enroll).
+    @Published var needsCredit = false
     @Published var openProof = false
     @Published var openPayOrderId: Int64?
     @Published var payOrder: Order?
@@ -132,18 +134,18 @@ final class LotteryEnrollModel: ObservableObject {
             await enroll()
             return
         }
+        openEligibilityStep(step)
+    }
+
+    /// Checklist row CTA — open the tapped step, not necessarily `nextEnrollStep`.
+    func openEligibilityStep(_ step: LotteryEnrollStep) {
         switch step {
         case .login:
             needsLogin = true
         case .realName:
             needsRealName = true
         case .credit:
-            let score = SessionStore.shared.bootstrap?.me?.creditScore ?? SessionStore.shared.user?.creditScore
-            AppRouterProxy.presentCreditBlock(
-                code: ReviewCreditErrorCode.creditBelow80.rawValue,
-                score: score,
-                action: "抽签报名"
-            )
+            needsCredit = true
         case .deposit:
             needsDeposit = true
         case .address:
@@ -239,12 +241,11 @@ final class LotteryEnrollModel: ObservableObject {
     private func handleError(_ e: APIError) {
         if ReviewCreditErrorCode.normalize(e.code)?.isCreditBlock == true
             || e.code == LotteryErrorCode.creditTooLow.rawValue {
-            let score = SessionStore.shared.bootstrap?.me?.creditScore ?? SessionStore.shared.user?.creditScore
-            AppRouterProxy.presentCreditBlock(
-                code: ReviewCreditErrorCode.normalize(e.code)?.rawValue
-                    ?? ReviewCreditErrorCode.creditBelow80.rawValue,
-                score: score,
-                action: "抽签报名"
+            // Present MeCredit inside this sheet stack — root CreditBlock sheet won't show over enroll.
+            needsCredit = true
+            ToastCenter.shared.show(
+                e.message.isEmpty ? LotteryErrorCode.creditTooLow.fallbackMessage : e.message,
+                .info
             )
             return
         }

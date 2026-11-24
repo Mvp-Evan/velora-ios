@@ -208,7 +208,7 @@ struct MainTabView: View {
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $router.showMeCredit) {
-            NavigationStack { MeCreditView() }
+            NavigationStack { MeCreditView(presentedAsSheet: true) }
         }
     }
 

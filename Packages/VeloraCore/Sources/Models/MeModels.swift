@@ -73,6 +73,7 @@ public enum MeEntryCode: String, Codable, Sendable, CaseIterable, Equatable, Ide
     case income
     case afterSaleSell = "after_sale_sell"
     case sellerDeposit = "seller_deposit"
+    case taxCenter = "tax_center"
     // Proxy
     case invoice
     case proxyKpi = "proxy_kpi"
@@ -123,6 +124,8 @@ public enum MeEntryCode: String, Codable, Sendable, CaseIterable, Equatable, Ide
             return .afterSaleSell
         case "卖家保证金", "brand_deposit":
             return .sellerDeposit
+        case "tax", "税务中心", "tax_profile":
+            return .taxCenter
         case "开票":
             return .invoice
         case "proxy_assessment", "kpi", "代拍考核":
@@ -160,6 +163,7 @@ public enum MeEntryCode: String, Codable, Sendable, CaseIterable, Equatable, Ide
         case .income: return "收入利润"
         case .afterSaleSell: return "退款售后"
         case .sellerDeposit: return "卖家保证金"
+        case .taxCenter: return "税务中心"
         case .invoice: return "开票申请"
         case .proxyKpi: return "代拍考核"
         case .store: return "店铺管理"
@@ -186,6 +190,7 @@ public enum MeEntryCode: String, Codable, Sendable, CaseIterable, Equatable, Ide
         case .sold: return "checkmark.seal"
         case .wallet: return "wallet.pass"
         case .income: return "chart.line.uptrend.xyaxis"
+        case .taxCenter: return "doc.text.magnifyingglass"
         case .invoice: return "doc.text"
         case .proxyKpi: return "chart.bar"
         case .store: return "storefront"
@@ -208,7 +213,7 @@ public enum MeEntryCode: String, Codable, Sendable, CaseIterable, Equatable, Ide
 
     public var isPersonalSellerEntry: Bool {
         switch self {
-        case .onsale, .auctions, .sold, .wallet, .income, .afterSaleSell, .sellerDeposit:
+        case .onsale, .auctions, .sold, .wallet, .income, .afterSaleSell, .sellerDeposit, .taxCenter:
             return true
         default:
             return false
@@ -1259,6 +1264,25 @@ public enum MeLogic {
     public static func sellerDepositTitle(sellerType: MeSellerType?) -> String {
         if sellerType == .brand { return "品牌保证金" }
         return MeEntryCode.sellerDeposit.defaultTitle
+    }
+
+    /// Overview may lag behind App (remote not redeployed); keep 税务中心 visible for all sellers.
+    public static func ensuringTaxCenterOverviewEntry(_ entries: [MeOverviewEntry]) -> [MeOverviewEntry] {
+        if entries.contains(where: { MeEntryCode.normalize($0.code) == .taxCenter }) {
+            return entries
+        }
+        var out = entries
+        out.append(
+            MeOverviewEntry(
+                code: MeEntryCode.taxCenter.rawValue,
+                title: MeEntryCode.taxCenter.defaultTitle,
+                badge: 0,
+                enabled: true,
+                href: "/me/tax-center",
+                icon: MeEntryCode.taxCenter.defaultSystemImage
+            )
+        )
+        return out
     }
 
     public static func protocolSignedCaption(signedAt: Date?, version: String) -> String {

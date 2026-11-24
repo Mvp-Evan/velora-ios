@@ -4,6 +4,7 @@ import SwiftUI
 struct SellerOnboardingView: View {
     @EnvironmentObject private var session: SessionStore
     @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
 
     @State private var model: SellerOnboardingResponse?
     @State private var loading = true
@@ -54,6 +55,11 @@ struct SellerOnboardingView: View {
         .background(Color.vBackground)
         .navigationTitle("开通卖家")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("关闭") { dismiss() }
+            }
+        }
         .task { await load(startIfNeeded: true) }
         .refreshable { await load(startIfNeeded: false) }
         .onDisappear { pollTask?.cancel() }

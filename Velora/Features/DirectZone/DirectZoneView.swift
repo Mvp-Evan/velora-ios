@@ -220,6 +220,11 @@ struct DirectZoneView: View {
             router.showLogin = true
             return
         }
+        // Sold / not purchasable → open detail (「已购买」→ order), never confirm-buy.
+        guard card.isPurchasable else {
+            onOpenListing(card.listingId)
+            return
+        }
         onBuyListing(card.listingId, card.price)
     }
 }

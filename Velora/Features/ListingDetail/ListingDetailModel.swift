@@ -11,6 +11,7 @@ final class ListingDetailModel: ObservableObject {
     @Published var questions: [ListingQuestion] = []
     @Published var photoRequests: [PhotoRequestRow] = []
     @Published var state: LoadState = .idle
+    @Published var lastErrorCode: ListingDetailErrorCode?
     @Published var asking = false
     @Published var requestingPhoto = false
     @Published var uploadingSupplement = false
@@ -45,6 +46,7 @@ final class ListingDetailModel: ObservableObject {
             return
         }
         if detail == nil { state = .loading }
+        lastErrorCode = nil
         do {
             let d = try await API.listing(listingId)
             detail = d
@@ -55,9 +57,11 @@ final class ListingDetailModel: ObservableObject {
             await refreshQuestionsIfNeeded()
         } catch {
             if let e = error as? APIError, e.code == ListingDetailErrorCode.listingNotPublic.rawValue {
+                lastErrorCode = .listingNotPublic
                 state = .failed(ListingDetailErrorCode.listingNotPublic.fallbackMessage)
                 return
             }
+            lastErrorCode = nil
             if detail == nil {
                 state = .failed((error as? APIError)?.message ?? "加载失败")
             } else {
